@@ -15,3 +15,21 @@ export const FILE_NAMES = {
   'java': 'Main.java',
   'c': 'main.c'
 };
+
+export const GRADING_THRESHOLDS = {
+    runtime: {
+      excellent: 200,    // < 100ms = A+
+      good: 500,         // < 500ms = A
+      average: 1000,     // < 1000ms = B
+      belowAverage: 2000 // < 2000ms = C
+      // > 2000ms = D
+    },
+    memory: {
+      excellent: 10,     // < 10MB = A+
+      good: 50,          // < 50MB = A
+      average: 100,      // < 100MB = B
+      belowAverage: 200  // < 200MB = C
+      // > 200MB = D
+    }
+  };
+  

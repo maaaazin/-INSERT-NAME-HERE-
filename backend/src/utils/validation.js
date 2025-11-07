@@ -11,3 +11,16 @@ export function validateExecutionRequest(req) {
     return { isValid: true };
   }
   
+  export function validateSubmissionRequest(req) {
+    const { submissionId } = req.body;
+    
+    if (!submissionId) {
+      return {
+        isValid: false,
+        error: 'Missing submission ID'
+      };
+    }
+    
+    return { isValid: true };
+  }
+  

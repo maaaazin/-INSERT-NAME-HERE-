@@ -8,6 +8,8 @@ export async function executeCode(code, language, stdin = '') {
     throw new Error(`Unsupported language: ${language}`);
   }
 
+  const startTime = Date.now();
+  
   const response = await axios.post(
     `${PISTON_URL}/api/v2/execute`,
     {
@@ -21,9 +23,21 @@ export async function executeCode(code, language, stdin = '') {
     }
   );
 
+  const runtime = Date.now() - startTime;
+
   return {
-    output: response.data.run.stdout,
+    output: response.data.run.stdout.trim(),
     error: response.data.run.stderr,
-    exitCode: response.data.run.code
+    exitCode: response.data.run.code,
+    runtime: runtime,
+    // Note: Piston doesn't provide memory usage, we'll estimate based on output size
+    memory: estimateMemoryUsage(response.data.run.stdout, response.data.run.stderr)
   };
+}
+
+// Estimate memory usage (rough approximation)
+function estimateMemoryUsage(stdout, stderr) {
+  const outputSize = (stdout.length + stderr.length) / 1024; // KB
+  const baseMemory = 5; // Base memory in MB
+  return baseMemory + (outputSize / 1024); // Convert to MB
 }
