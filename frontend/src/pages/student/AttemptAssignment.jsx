@@ -118,7 +118,7 @@ const AttemptAssignment = () => {
         // Optionally poll for status (can be implemented later)
         return
       }
-
+      
       // Update test results with detailed information (synchronous mode)
       if (result.testResults && result.testResults.testResults) {
         const detailedResults = result.testResults.testResults.map(tr => ({
@@ -179,7 +179,7 @@ const AttemptAssignment = () => {
       } else if (error.message && error.message.includes('Maximum resubmission limit')) {
         setOutput(`❌ ${error.message}\n\nYou have reached the maximum of 3 submissions for this assignment.`)
       } else {
-        setOutput(`Error: ${error.message}`)
+      setOutput(`Error: ${error.message}`)
       }
     } finally {
       setIsRunning(false)
@@ -255,13 +255,19 @@ const AttemptAssignment = () => {
               Run Code
             </Button>
             <Button
-              className="bg-blue-600 hover:bg-blue-700"
+              className={`${
+                submissionCount >= 3 
+                  ? 'bg-gray-500 hover:bg-gray-600 cursor-not-allowed' 
+                  : submissionCount > 0 
+                    ? 'bg-orange-600 hover:bg-orange-700' 
+                    : 'bg-green-600 hover:bg-green-700'
+              } text-white`}
               onClick={handleSubmit}
               disabled={isRunning || submissionCount >= 3}
               title={submissionCount >= 3 ? "Maximum of 3 submissions reached" : ""}
             >
               <Send className="w-4 h-4 mr-2" />
-              {submissionCount >= 3 ? "Limit Reached" : "Submit"}
+              {submissionCount >= 3 ? "Limit Reached" : submissionCount > 0 ? "Resubmit" : "Submit"}
             </Button>
           </div>
         </div>

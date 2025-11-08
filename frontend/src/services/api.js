@@ -86,19 +86,13 @@ export const submissionsAPI = {
 
 // Stats API
 export const statsAPI = {
-  getTeacherStats: (instructorId, batchId) => {
-    const url = batchId 
-      ? `/stats/teacher/${instructorId}?batchId=${batchId}`
-      : `/stats/teacher/${instructorId}`;
-    return apiCall(url);
+  getTeacherStats: (instructorId) => {
+    return apiCall(`/stats/teacher/${instructorId}`);
   },
   getStudentStats: (studentId) => apiCall(`/stats/student/${studentId}`),
   getAssignmentStats: (assignmentId) => apiCall(`/stats/assignment/${assignmentId}`),
-  getLeaderboard: (batchId) => {
-    const url = batchId 
-      ? `/stats/leaderboard/${batchId}`
-      : '/stats/leaderboard';
-    return apiCall(url);
+  getLeaderboard: () => {
+    return apiCall('/stats/leaderboard');
   },
 };
 
@@ -125,6 +119,14 @@ export const executionAPI = {
   }),
 };
 
+// Plagiarism API
+export const plagiarismAPI = {
+  compare: (submissionId1, submissionId2) => 
+    apiCall(`/plagiarism/compare/${submissionId1}/${submissionId2}`),
+  checkAssignment: (assignmentId, threshold = 80) => 
+    apiCall(`/plagiarism/assignment/${assignmentId}?threshold=${threshold}`),
+};
+
 export default {
   assignments: assignmentsAPI,
   testCases: testCasesAPI,
@@ -132,5 +134,6 @@ export default {
   stats: statsAPI,
   batches: batchesAPI,
   execution: executionAPI,
+  plagiarism: plagiarismAPI,
 };
 

@@ -4,19 +4,12 @@ import { supabase } from '../config/supabase.js';
 export async function getTeacherDashboardStats(req, res) {
   try {
     const { instructorId } = req.params;
-    const { batchId } = req.query;
 
-    // Build query for assignments
-    let assignmentsQuery = supabase
+    // Get all assignments for this instructor (no batch filtering)
+    const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
       .select('assignment_id, status, due_date')
       .eq('instructor_id', instructorId);
-
-    if (batchId) {
-      assignmentsQuery = assignmentsQuery.eq('batch_id', batchId);
-    }
-
-    const { data: assignments, error: assignmentsError } = await assignmentsQuery;
 
     if (assignmentsError) throw assignmentsError;
 
@@ -24,20 +17,14 @@ export async function getTeacherDashboardStats(req, res) {
     const activeAssignments = assignments?.filter(a => a.status === 'active') || [];
     const activeAssignmentIds = activeAssignments.map(a => a.assignment_id);
 
-    // Get total students in batch(es)
-    let studentsQuery = supabase
+    // Get all students (no batch filtering)
+    const { count: totalStudents, error: studentsError } = await supabase
       .from('students')
       .select('student_id', { count: 'exact' });
 
-    if (batchId) {
-      studentsQuery = studentsQuery.eq('batch_id', batchId);
-    }
-
-    const { count: totalStudents, error: studentsError } = await studentsQuery;
-
     if (studentsError) throw studentsError;
 
-    // Get submissions for active assignments (include student_id for proper filtering)
+    // Get submissions for active assignments
     const { data: submissions, error: submissionsError } = await supabase
       .from('submissions')
       .select('submission_id, assignment_id, student_id, score, max_score, status')
@@ -51,8 +38,8 @@ export async function getTeacherDashboardStats(req, res) {
       ? Math.round((submissions.reduce((sum, s) => sum + (s.score || 0), 0) / submissions.length))
       : 0;
 
-    // Get students who might need help (low scores or no submissions)
-    let studentsListQuery = supabase
+    // Get all students with their user info
+    const { data: allStudents, error: allStudentsError } = await supabase
       .from('students')
       .select(`
         student_id,
@@ -63,34 +50,68 @@ export async function getTeacherDashboardStats(req, res) {
         )
       `);
 
-    if (batchId) {
-      studentsListQuery = studentsListQuery.eq('batch_id', batchId);
-    }
-
-    const { data: allStudents, error: allStudentsError } = await studentsListQuery;
-
     if (allStudentsError) throw allStudentsError;
 
     const studentsNeedHelp = [];
+    const now = new Date();
+
     if (allStudents) {
       for (const student of allStudents) {
-        // Get actual student submissions by fetching with student_id
-        const { data: studentSubs } = await supabase
-          .from('submissions')
-          .select('score, max_score, status')
-          .eq('student_id', student.student_id)
-          .in('assignment_id', activeAssignmentIds.length > 0 ? activeAssignmentIds : []);
-
-        const hasLowScores = studentSubs?.some(s => {
-          const percentage = s.max_score > 0 ? (s.score || 0) / s.max_score * 100 : 0;
-          return percentage < 50;
+        // Get all assignments with due dates that have passed
+        const pastDueAssignments = activeAssignments.filter(a => {
+          const dueDate = new Date(a.due_date);
+          return now > dueDate;
         });
 
-        if (!studentSubs || studentSubs.length === 0 || hasLowScores) {
+        // Get student's submissions for active assignments
+        const { data: studentSubs } = await supabase
+          .from('submissions')
+          .select('assignment_id, score, max_score, status')
+          .eq('student_id', student.student_id)
+          .in('assignment_id', activeAssignmentIds.length > 0 ? activeAssignmentIds : [0]);
+
+        const studentSubmissionIds = new Set(studentSubs?.map(s => s.assignment_id) || []);
+
+        // Check for failed submissions (status = 'error' or score = 0)
+        const failedSubmissions = studentSubs?.filter(s => 
+          s.status === 'error' || (s.max_score > 0 && s.score === 0)
+        ) || [];
+
+        // Check for assignments past deadline that student hasn't attempted
+        const missedDeadlines = pastDueAssignments.filter(a => 
+          !studentSubmissionIds.has(a.assignment_id)
+        );
+
+        // Check for low scores (< 50%)
+        const hasLowScores = studentSubs?.some(s => {
+          const percentage = s.max_score > 0 ? (s.score || 0) / s.max_score * 100 : 0;
+          return percentage < 50 && s.status === 'graded';
+        });
+
+        // Determine issue
+        let issue = null;
+        let priority = 'medium';
+
+        if (failedSubmissions.length > 0) {
+          issue = `Failed ${failedSubmissions.length} submission(s)`;
+          priority = 'high';
+        } else if (missedDeadlines.length > 0) {
+          issue = `Missed ${missedDeadlines.length} assignment deadline(s)`;
+          priority = 'high';
+        } else if (hasLowScores) {
+          issue = 'Low scores on assignments';
+          priority = 'medium';
+        } else if (!studentSubs || studentSubs.length === 0) {
+          issue = 'No submissions yet';
+          priority = 'medium';
+        }
+
+        if (issue) {
           studentsNeedHelp.push({
             student_id: student.student_id,
             name: student.users?.name || 'Unknown',
-            issue: !studentSubs || studentSubs.length === 0 ? 'No submission yet' : 'Low scores'
+            issue: issue,
+            priority: priority
           });
         }
       }
@@ -100,7 +121,8 @@ export async function getTeacherDashboardStats(req, res) {
       activeAssignments: activeAssignments.length,
       studentsSubmitted: `${submittedCount}/${totalStudents || 0}`,
       averageScore: `${avgScore}%`,
-      mightNeedHelp: studentsNeedHelp.length
+      mightNeedHelp: studentsNeedHelp.length,
+      studentsNeedHelp: studentsNeedHelp // Return the full list
     });
   } catch (error) {
     console.error('Error fetching teacher stats:', error);
@@ -231,24 +253,16 @@ export async function getAssignmentStats(req, res) {
   try {
     const { assignmentId } = req.params;
 
-    // Get assignment
+    // Get assignment details
     const { data: assignment, error: assignmentError } = await supabase
       .from('assignments')
-      .select('assignment_id, batch_id, max_score')
+      .select('assignment_id, max_score')
       .eq('assignment_id', assignmentId)
       .single();
 
     if (assignmentError) throw assignmentError;
 
-    // Get total students in batch
-    const { count: totalStudents, error: studentsError } = await supabase
-      .from('students')
-      .select('student_id', { count: 'exact' })
-      .eq('batch_id', assignment.batch_id);
-
-    if (studentsError) throw studentsError;
-
-    // Get submissions
+    // Get all submissions for this assignment
     const { data: submissions, error: submissionsError } = await supabase
       .from('submissions')
       .select('submission_id, score, max_score, status')
@@ -256,16 +270,16 @@ export async function getAssignmentStats(req, res) {
 
     if (submissionsError) throw submissionsError;
 
-    const submittedCount = submissions?.length || 0;
-    const avgScore = submissions && submissions.length > 0
-      ? Math.round((submissions.reduce((sum, s) => sum + (s.score || 0), 0) / submissions.length))
+    // Calculate stats
+    const totalSubmissions = submissions?.length || 0;
+    const gradedSubmissions = submissions?.filter(s => s.status === 'graded') || [];
+    const avgScore = gradedSubmissions.length > 0
+      ? Math.round(gradedSubmissions.reduce((sum, s) => sum + (s.score || 0), 0) / gradedSubmissions.length)
       : 0;
 
     res.json({
-      totalStudents: totalStudents || 0,
-      submittedCount,
-      averageScore: `${avgScore}%`,
-      submissions: `${submittedCount}/${totalStudents || 0}`
+      submissions: `${gradedSubmissions.length}/${totalSubmissions}`,
+      averageScore: `${avgScore}%`
     });
   } catch (error) {
     console.error('Error fetching assignment stats:', error);
@@ -276,10 +290,8 @@ export async function getAssignmentStats(req, res) {
 // Get leaderboard
 export async function getLeaderboard(req, res) {
   try {
-    const batchId = req.params.batchId || req.query.batchId;
-
-    // Get all students in batch
-    let studentsQuery = supabase
+    // Get all students (no batch filtering)
+    const { data: students, error: studentsError } = await supabase
       .from('students')
       .select(`
         student_id,
@@ -290,12 +302,6 @@ export async function getLeaderboard(req, res) {
           email
         )
       `);
-
-    if (batchId) {
-      studentsQuery = studentsQuery.eq('batch_id', batchId);
-    }
-
-    const { data: students, error: studentsError } = await studentsQuery;
 
     if (studentsError) throw studentsError;
 
@@ -353,4 +359,3 @@ export async function getLeaderboard(req, res) {
     res.status(500).json({ error: error.message });
   }
 }
-

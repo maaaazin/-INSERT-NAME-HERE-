@@ -11,28 +11,23 @@ import {
   AlertCircle,
   Send,
   Download,
-  Mail,
   BarChart3,
   Trophy,
   Medal,
   Eye,
   Edit,
   Trash2,
-  ChevronDown,
   Loader2
 } from 'lucide-react'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import CreateAssignmentModal from '@/components/modals/CreateAssignmentModal'
 import ViewAssignmentModal from '@/components/modals/ViewAssignmentModal'
 import AnalyticsModal from '@/components/modals/AnalyticsModal'
 import EditAssignmentModal from '@/components/modals/EditAssignmentModal'
 import ManageTestCasesModal from '@/components/modals/ManageTestCasesModal'
-import { statsAPI, assignmentsAPI, batchesAPI } from '@/services/api'
+import { statsAPI, assignmentsAPI, submissionsAPI } from '@/services/api'
 
 const TeacherDashboard = () => {
   const { user } = useAuth()
-  const [selectedBatch, setSelectedBatch] = useState(null)
-  const [batches, setBatches] = useState([])
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [viewModalOpen, setViewModalOpen] = useState(false)
   const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false)
@@ -48,45 +43,92 @@ const TeacherDashboard = () => {
   })
   const [assignments, setAssignments] = useState([])
   const [leaderboard, setLeaderboard] = useState([])
+  const [recentActivity, setRecentActivity] = useState([])
+  const [studentsNeedHelp, setStudentsNeedHelp] = useState([])
 
   // Fetch data
   useEffect(() => {
     fetchData()
-  }, [user, selectedBatch])
+  }, [user])
 
   const fetchData = async () => {
-    if (!user?.instructor_id) return
+    if (!user?.instructor_id) {
+      setLoading(false)
+      return
+    }
     
     setLoading(true)
     try {
-      // Fetch batches
-      const batchesData = await batchesAPI.getByInstructor(user.instructor_id)
-      setBatches(batchesData || [])
-      if (batchesData && batchesData.length > 0 && !selectedBatch) {
-        setSelectedBatch(batchesData[0].batch_id)
+      // Fetch stats (no batch filtering)
+      const statsData = await statsAPI.getTeacherStats(user.instructor_id)
+      setStats({
+        activeAssignments: statsData.activeAssignments || 0,
+        studentsSubmitted: statsData.studentsSubmitted || '0/0',
+        averageScore: statsData.averageScore || '0%',
+        mightNeedHelp: statsData.mightNeedHelp || 0
+      })
+      
+      // Set students who need help
+      setStudentsNeedHelp(statsData.studentsNeedHelp || [])
+
+      // Fetch leaderboard (all students, no batch filtering)
+      const leaderboardData = await statsAPI.getLeaderboard()
+      setLeaderboard(leaderboardData || [])
+      
+      // Fetch recent activity (recent submissions)
+      try {
+        const submissions = await submissionsAPI.getAll()
+        const recent = (submissions || [])
+          .slice(0, 10)
+          .map(sub => {
+            const submittedAt = new Date(sub.submitted_at || sub.created_at)
+            const now = new Date()
+            const minutesAgo = Math.floor((now - submittedAt) / (1000 * 60))
+            const hoursAgo = Math.floor(minutesAgo / 60)
+            const daysAgo = Math.floor(hoursAgo / 24)
+            
+            let timeAgo = ''
+            if (minutesAgo < 60) {
+              timeAgo = `${minutesAgo} min ago`
+            } else if (hoursAgo < 24) {
+              timeAgo = `${hoursAgo} hour${hoursAgo > 1 ? 's' : ''} ago`
+            } else {
+              timeAgo = `${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`
+            }
+
+            const score = sub.max_score ? Math.round((sub.score / sub.max_score) * 100) : 0
+            let status = 'info'
+            let action = 'attempted'
+            
+            if (sub.status === 'graded' && score === 100) {
+              status = 'success'
+              action = 'submitted'
+            } else if (sub.status === 'graded' && score > 0) {
+              status = 'info'
+              action = 'submitted'
+            } else if (sub.status === 'graded' && score === 0) {
+              status = 'error'
+              action = 'failed a submission'
+            }
+
+            return {
+              id: sub.submission_id,
+              name: sub.students?.users?.name || 'Unknown Student',
+              action,
+              time: timeAgo,
+              status
+            }
+          })
+        setRecentActivity(recent)
+      } catch (error) {
+        console.error('Error fetching recent activity:', error)
+        setRecentActivity([])
       }
 
-      // Fetch stats
-      if (selectedBatch) {
-        const statsData = await statsAPI.getTeacherStats(user.instructor_id, selectedBatch)
-        setStats({
-          activeAssignments: statsData.activeAssignments || 0,
-          studentsSubmitted: statsData.studentsSubmitted || '0/0',
-          averageScore: statsData.averageScore || '0%',
-          mightNeedHelp: statsData.mightNeedHelp || 0
-        })
-
-        // Fetch leaderboard
-        const leaderboardData = await statsAPI.getLeaderboard(selectedBatch)
-        setLeaderboard(leaderboardData || [])
-      }
-
-      // Fetch assignments
+      // Fetch all assignments (not just active, not limited to 3)
       const assignmentsData = await assignmentsAPI.getByInstructor(user.instructor_id)
-      const activeAssignments = (assignmentsData || [])
-        .filter(a => a.status === 'active')
-        .slice(0, 3)
-        .map(async (assignment) => {
+      const assignmentsWithStats = await Promise.all(
+        (assignmentsData || []).map(async (assignment) => {
           const assignmentStats = await statsAPI.getAssignmentStats(assignment.assignment_id)
           return {
             ...assignment,
@@ -99,8 +141,10 @@ const TeacherDashboard = () => {
             status: assignment.status
           }
         })
-      const resolvedAssignments = await Promise.all(activeAssignments)
-      setAssignments(resolvedAssignments)
+      )
+      // Sort by created_at descending and show all
+      assignmentsWithStats.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      setAssignments(assignmentsWithStats)
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
     } finally {
@@ -115,8 +159,6 @@ const TeacherDashboard = () => {
     { label: 'Might Need Help', value: stats.mightNeedHelp.toString(), icon: AlertCircle, color: 'text-red-600' },
   ]
 
-  const recentActivity = [] // TODO: Fetch from submissions
-  const studentsNeedHelp = [] // TODO: Fetch from stats
 
   const getStatusDot = (status) => {
     const colors = {
@@ -134,6 +176,33 @@ const TeacherDashboard = () => {
     return null
   }
 
+  // Show loading state if user data is not available yet
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
+  // Show message if user doesn't have instructor_id
+  if (!user?.instructor_id && !loading) {
+    return (
+      <div className="space-y-6">
+        <header className="bg-white border-b border-gray-200 px-6 py-4 -mx-6 -mt-6 mb-6">
+          <h1 className="text-3xl font-bold">Welcome, {user?.name || 'Teacher'}!</h1>
+        </header>
+        <Card>
+          <CardContent className="p-12 text-center">
+            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Instructor Profile Found</h2>
+            <p className="text-gray-600">Please contact your administrator to set up your instructor profile.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -141,27 +210,6 @@ const TeacherDashboard = () => {
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Welcome, {user?.name || 'Teacher'}!</h1>
           <div className="flex items-center gap-4">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-2">
-                  {selectedBatch 
-                    ? `Batch ${batches.find(b => b.batch_id === selectedBatch)?.batch_name || selectedBatch}`
-                    : 'Select Batch'}
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {batches.map((batch) => (
-                  <DropdownMenuItem 
-                    key={batch.batch_id}
-                    onClick={() => setSelectedBatch(batch.batch_id)}
-                  >
-                    {batch.batch_name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
             <Button 
               className="bg-blue-600 hover:bg-blue-700"
               onClick={() => setCreateModalOpen(true)}
@@ -201,15 +249,23 @@ const TeacherDashboard = () => {
               <CardTitle>Recent Activity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recentActivity.map((activity, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  {getStatusDot(activity.status)}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{activity.name} {activity.action}</p>
-                    <p className="text-xs text-gray-500">{activity.time}</p>
-                  </div>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
-              ))}
+              ) : recentActivity.length === 0 ? (
+                <p className="text-center text-gray-500 py-8 text-sm">No recent activity</p>
+              ) : (
+                recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex items-center gap-3">
+                    {getStatusDot(activity.status)}
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{activity.name} {activity.action}</p>
+                      <p className="text-xs text-gray-500">{activity.time}</p>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -222,64 +278,43 @@ const TeacherDashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {studentsNeedHelp.map((student, index) => (
-                <div
-                  key={index}
-                  className={`p-4 rounded-lg border ${
-                    student.priority === 'high'
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-yellow-50 border-yellow-200'
-                  }`}
-                >
-                  <p className="font-semibold text-sm mb-1">{student.name}</p>
-                  <p className="text-xs text-gray-600 mb-2">{student.issue}</p>
-                  <Button variant="link" size="sm" className="p-0 h-auto text-xs">
-                    <Send className="w-3 h-3 mr-1" />
-                    Send Mail
-                  </Button>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
-              ))}
+              ) : studentsNeedHelp.length === 0 ? (
+                <p className="text-center text-gray-500 py-8 text-sm">No students need help at the moment</p>
+              ) : (
+                studentsNeedHelp.map((student) => (
+                  <div
+                    key={student.student_id}
+                    className={`p-4 rounded-lg border ${
+                      student.priority === 'high'
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-yellow-50 border-yellow-200'
+                    }`}
+                  >
+                    <p className="font-semibold text-sm mb-1">{student.name}</p>
+                    <p className="text-xs text-gray-600 mb-2">{student.issue}</p>
+                    <Button variant="link" size="sm" className="p-0 h-auto text-xs">
+                      <Send className="w-3 h-3 mr-1" />
+                      Send Mail
+                    </Button>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 ">
-              <Button variant="ghost" className="w-full justify-start">
-                <Users className="w-4 h-4 mr-2" />
-                Manage Batches
-              </Button>
-              <Button variant="ghost" className="w-full justify-start">
-                <FileText className="w-4 h-4 mr-2" />
-                Assignment Templates
-              </Button>
-              <Button variant="ghost" className="w-full justify-start">
-                <BarChart3 className="w-4 h-4 mr-2" />
-                Full Analytics
-              </Button>
-              <Button variant="ghost" className="w-full justify-start">
-                <Download className="w-4 h-4 mr-2" />
-                Export All Data
-              </Button>
-              <Button variant="ghost" className="w-full justify-start">
-                <Mail className="w-4 h-4 mr-2" />
-                Bulk Email Students
-              </Button>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Right Column */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Upcoming Assignments */}
+          {/* All Assignments */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Upcoming Assignments</CardTitle>
-                <Button variant="link" className="text-sm">View All</Button>
+                <CardTitle>All Assignments</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -288,10 +323,10 @@ const TeacherDashboard = () => {
                   <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
               ) : assignments.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">No active assignments</p>
+                <p className="text-center text-gray-500 py-8">No assignments found</p>
               ) : (
-                assignments.map((assignment, index) => (
-                <div key={index} className="p-4 border rounded-lg space-y-3">
+                assignments.map((assignment) => (
+                <div key={assignment.assignment_id} className="p-4 border rounded-lg space-y-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg mb-2">{assignment.title}</h3>
@@ -304,12 +339,11 @@ const TeacherDashboard = () => {
                         {assignment.submissions} submissions • Avg Score: {assignment.avgScore}
                       </p>
                     </div>
-                    <Badge variant="success" className="ml-4">
+                    <Badge variant={assignment.status === 'active' ? 'success' : 'secondary'} className="ml-4">
                       {assignment.status}
                     </Badge>
                   </div>
-                  {index === 0 && (
-                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t">
+                  <div className="flex items-center gap-2 flex-wrap pt-2 border-t">
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -356,12 +390,25 @@ const TeacherDashboard = () => {
                         Test Cases
                       </Button>
                       
-                      <Button variant="outline" size="sm" className="outline-red-400 text-red-500 hover:bg-gray-200">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="outline-red-400 text-red-500 hover:bg-gray-200"
+                        onClick={() => {
+                          if (confirm('Are you sure you want to delete this assignment?')) {
+                            assignmentsAPI.delete(assignment.assignment_id).then(() => {
+                              fetchData()
+                            }).catch(err => {
+                              console.error('Error deleting assignment:', err)
+                              alert('Failed to delete assignment')
+                            })
+                          }
+                        }}
+                      >
                         <Trash2 className="w-4 h-4 mr-1" />
                         Delete
                       </Button>
                     </div>
-                  )}
                 </div>
                 ))
               )}

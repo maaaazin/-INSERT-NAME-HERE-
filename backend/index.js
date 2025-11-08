@@ -8,6 +8,7 @@ import testCasesRoutes from './src/routes/testcases.routes.js';
 import submissionsRoutes from './src/routes/submissions.routes.js';
 import statsRoutes from './src/routes/stats.routes.js';
 import batchesRoutes from './src/routes/batches.routes.js';
+import plagiarismRoutes from './src/routes/plagiarism.routes.js';
 import { checkSupabaseConnection } from './src/services/database.service.js';
 import { getQueueStats } from './src/services/queue.service.js';
 
@@ -43,6 +44,7 @@ app.use('/api/testcases', testCasesRoutes);
 app.use('/api/submissions', submissionsRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/batches', batchesRoutes);
+app.use('/api/plagiarism', plagiarismRoutes);
 
 // Check Supabase connection before starting
 checkSupabaseConnection().then((isConnected) => {

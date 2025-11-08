@@ -3,18 +3,39 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Trophy, Medal, Download, Loader2 } from 'lucide-react'
-import { statsAPI } from '@/services/api'
+import { Trophy, Medal, Download, Loader2, ChevronDown } from 'lucide-react'
+import { statsAPI, batchesAPI } from '@/services/api'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 const TeacherLeaderboard = () => {
   const { user } = useAuth()
   const [leaderboard, setLeaderboard] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedBatch, setSelectedBatch] = useState(null)
+  const [batches, setBatches] = useState([])
 
   useEffect(() => {
-    fetchLeaderboard()
+    fetchBatches()
+  }, [user])
+
+  useEffect(() => {
+    if (selectedBatch) {
+      fetchLeaderboard()
+    }
   }, [user, selectedBatch])
+
+  const fetchBatches = async () => {
+    if (!user?.instructor_id) return
+    try {
+      const batchesData = await batchesAPI.getByInstructor(user.instructor_id)
+      setBatches(batchesData || [])
+      if (batchesData && batchesData.length > 0 && !selectedBatch) {
+        setSelectedBatch(batchesData[0].batch_id)
+      }
+    } catch (error) {
+      console.error('Error fetching batches:', error)
+    }
+  }
 
   const fetchLeaderboard = async () => {
     setLoading(true)
@@ -52,10 +73,32 @@ const TeacherLeaderboard = () => {
           <Trophy className="w-8 h-8 text-yellow-500" />
           Leaderboard
         </h1>
-        <Button variant="outline">
-          <Download className="w-4 h-4 mr-2" />
-          Export
-        </Button>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="flex items-center gap-2">
+                {selectedBatch 
+                  ? `Batch ${batches.find(b => b.batch_id === selectedBatch)?.batch_name || selectedBatch}`
+                  : 'Select Batch'}
+                <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {batches.map((batch) => (
+                <DropdownMenuItem 
+                  key={batch.batch_id}
+                  onClick={() => setSelectedBatch(batch.batch_id)}
+                >
+                  {batch.batch_name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline">
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+        </div>
       </div>
 
       <Card>

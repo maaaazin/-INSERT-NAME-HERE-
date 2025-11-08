@@ -93,6 +93,28 @@ export async function getSubmissionsByStudent(req, res) {
 
     if (error) throw error;
 
+    // Fetch test results for each submission
+    const submissionIds = data?.map(s => s.submission_id) || [];
+    let testResultsMap = {};
+    
+    if (submissionIds.length > 0) {
+      const { data: testResults, error: testResultsError } = await supabase
+        .from('test_results')
+        .select('*')
+        .in('submission_id', submissionIds)
+        .order('test_case_id', { ascending: true });
+
+      if (!testResultsError && testResults) {
+        // Group test results by submission_id
+        testResults.forEach(tr => {
+          if (!testResultsMap[tr.submission_id]) {
+            testResultsMap[tr.submission_id] = [];
+          }
+          testResultsMap[tr.submission_id].push(tr);
+        });
+      }
+    }
+
     // Calculate average scores per assignment
     const assignmentSubmissions = new Map();
     data?.forEach(sub => {
@@ -120,11 +142,12 @@ export async function getSubmissionsByStudent(req, res) {
       }
     });
 
-    // Add average info to each submission
+    // Add average info and test results to each submission
     const enrichedData = data?.map(sub => ({
       ...sub,
       assignmentAverage: assignmentAverages.get(sub.assignment_id)?.averagePercentage || null,
-      totalSubmissionsForAssignment: assignmentAverages.get(sub.assignment_id)?.totalSubmissions || 1
+      totalSubmissionsForAssignment: assignmentAverages.get(sub.assignment_id)?.totalSubmissions || 1,
+      testResults: testResultsMap[sub.submission_id] || []
     }));
 
     res.json(enrichedData || data);

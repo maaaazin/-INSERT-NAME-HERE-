@@ -46,7 +46,7 @@ const Navbar = ({ currentPage, onPageChange }) => {
         <div className="flex items-center justify-between h-16">
           {/* Logo/Brand - Left */}
           <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-900">CodeGrading</h1>
+            <h1 className="text-xl font-bold text-gray-900">Codemia</h1>
           </div>
 
           {/* Navigation Links - Center */}

@@ -116,7 +116,7 @@ const Signup = () => {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Create Account</CardTitle>
           <CardDescription className="text-center">
-            Sign up to get started with CodeGrading
+            Sign up to get started with Codemia
           </CardDescription>
         </CardHeader>
         <CardContent>

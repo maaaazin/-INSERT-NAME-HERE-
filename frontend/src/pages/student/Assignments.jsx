@@ -73,7 +73,7 @@ const StudentAssignments = () => {
         let submissionCount = 0
 
         if (assignmentData) {
-          status = 'submitted'
+            status = 'submitted'
           score = `${assignmentData.averageScore}% (avg)`
           submissionCount = assignmentData.totalSubmissions
         } else {
@@ -82,7 +82,7 @@ const StudentAssignments = () => {
           if (subs && subs.length > 0) {
             const hasPending = subs.some(s => s.status === 'pending')
             if (hasPending) {
-              status = 'in-progress'
+            status = 'in-progress'
             } else if (subs.some(s => s.status === 'graded')) {
               status = 'submitted'
             }
@@ -128,7 +128,7 @@ const StudentAssignments = () => {
       return // Do nothing for closed assignments
     }
     // Always allow attempting/resubmitting until deadline
-    navigate(`/student/assignments/${assignment.id}/attempt`)
+      navigate(`/student/assignments/${assignment.id}/attempt`)
   }
 
   const getStatusBadge = (status) => {
@@ -190,7 +190,7 @@ const StudentAssignments = () => {
                       <div className="mt-2">
                         <p className="text-sm font-medium text-green-600">
                           Average Score: {assignment.score}
-                        </p>
+                      </p>
                         {assignment.submissionCount > 1 && (
                           <p className="text-xs text-gray-500 mt-1">
                             Based on {assignment.submissionCount} submissions
@@ -207,7 +207,13 @@ const StudentAssignments = () => {
                 </div>
                 <div className="flex items-center gap-2 pt-4 border-t">
                   <Button 
-                    className="flex-1"
+                    className={`flex-1 ${
+                      assignment.isPastDue 
+                        ? '' 
+                        : assignment.submissionCount > 0 
+                          ? 'bg-orange-600 hover:bg-orange-700 text-white' 
+                          : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
                     onClick={() => handleButtonClick(assignment)}
                     disabled={assignment.isPastDue}
                     variant={assignment.isPastDue ? 'outline' : 'default'}

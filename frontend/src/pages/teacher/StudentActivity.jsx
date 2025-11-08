@@ -3,18 +3,40 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Activity, AlertCircle, Send, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
-import { submissionsAPI } from '@/services/api'
+import { Activity, AlertCircle, Send, Clock, CheckCircle2, XCircle, Loader2, ChevronDown } from 'lucide-react'
+import { submissionsAPI, statsAPI, batchesAPI } from '@/services/api'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 const TeacherStudentActivity = () => {
   const { user } = useAuth()
   const [recentActivity, setRecentActivity] = useState([])
   const [studentsNeedHelp, setStudentsNeedHelp] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedBatch, setSelectedBatch] = useState(null)
+  const [batches, setBatches] = useState([])
 
   useEffect(() => {
-    fetchActivity()
+    fetchBatches()
   }, [user])
+
+  useEffect(() => {
+    if (selectedBatch) {
+      fetchActivity()
+    }
+  }, [user, selectedBatch])
+
+  const fetchBatches = async () => {
+    if (!user?.instructor_id) return
+    try {
+      const batchesData = await batchesAPI.getByInstructor(user.instructor_id)
+      setBatches(batchesData || [])
+      if (batchesData && batchesData.length > 0 && !selectedBatch) {
+        setSelectedBatch(batchesData[0].batch_id)
+      }
+    } catch (error) {
+      console.error('Error fetching batches:', error)
+    }
+  }
 
   const fetchActivity = async () => {
     setLoading(true)
@@ -68,8 +90,18 @@ const TeacherStudentActivity = () => {
 
       setRecentActivity(recent)
 
-      // Students who might need help (simplified - would need more complex logic)
-      setStudentsNeedHelp([])
+      // Fetch students who need help from stats API
+      if (selectedBatch && user?.instructor_id) {
+        try {
+          const statsData = await statsAPI.getTeacherStats(user.instructor_id, selectedBatch)
+          setStudentsNeedHelp(statsData.studentsNeedHelp || [])
+        } catch (error) {
+          console.error('Error fetching students who need help:', error)
+          setStudentsNeedHelp([])
+        }
+      } else {
+        setStudentsNeedHelp([])
+      }
     } catch (error) {
       console.error('Error fetching activity:', error)
       setRecentActivity([])
@@ -101,6 +133,26 @@ const TeacherStudentActivity = () => {
           <Activity className="w-8 h-8" />
           Student Activity
         </h1>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="flex items-center gap-2">
+              {selectedBatch 
+                ? `Batch ${batches.find(b => b.batch_id === selectedBatch)?.batch_name || selectedBatch}`
+                : 'Select Batch'}
+              <ChevronDown className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {batches.map((batch) => (
+              <DropdownMenuItem 
+                key={batch.batch_id}
+                onClick={() => setSelectedBatch(batch.batch_id)}
+              >
+                {batch.batch_name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -156,16 +208,15 @@ const TeacherStudentActivity = () => {
               ) : (
                 studentsNeedHelp.map((student) => (
                 <div
-                  key={student.id}
+                  key={student.student_id}
                   className={`p-4 rounded-lg border ${
-                    student.priority === 'high'
+                    student.issue === 'Low scores'
                       ? 'bg-red-50 border-red-200'
                       : 'bg-yellow-50 border-yellow-200'
                   }`}
                 >
                   <p className="font-semibold text-sm mb-1">{student.name}</p>
-                  <p className="text-xs text-gray-600 mb-1">{student.issue}</p>
-                  <p className="text-xs text-gray-500 mb-2">Last activity: {student.lastActivity}</p>
+                  <p className="text-xs text-gray-600 mb-2">{student.issue}</p>
                   <Button variant="link" size="sm" className="p-0 h-auto text-xs">
                     <Send className="w-3 h-3 mr-1" />
                     Send Mail

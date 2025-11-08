@@ -18,6 +18,7 @@ import ViewAssignmentModal from '@/components/modals/ViewAssignmentModal'
 import AnalyticsModal from '@/components/modals/AnalyticsModal'
 import EditAssignmentModal from '@/components/modals/EditAssignmentModal'
 import ManageTestCasesModal from '@/components/modals/ManageTestCasesModal'
+import ViewSubmissionsModal from '@/components/modals/ViewSubmissionsModal'
 import { assignmentsAPI, statsAPI } from '@/services/api'
 
 const TeacherAssignments = () => {
@@ -27,6 +28,7 @@ const TeacherAssignments = () => {
   const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [testCasesModalOpen, setTestCasesModalOpen] = useState(false)
+  const [submissionsModalOpen, setSubmissionsModalOpen] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState(null)
   const [assignments, setAssignments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -36,10 +38,11 @@ const TeacherAssignments = () => {
   }, [user])
 
   const fetchAssignments = async () => {
-    if (!user?.instructor_id) return
+    if (!user || user.role !== 'teacher') return
     setLoading(true)
     try {
-      const data = await assignmentsAPI.getByInstructor(user.instructor_id)
+      // Teachers can see all assignments, not just their own
+      const data = await assignmentsAPI.getAll()
       const assignmentsWithStats = await Promise.all(
         (data || []).map(async (assignment) => {
           const stats = await statsAPI.getAssignmentStats(assignment.assignment_id)
@@ -135,6 +138,17 @@ const TeacherAssignments = () => {
                     View
                   </Button>
                   <Button 
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedAssignment(assignment)
+                      setSubmissionsModalOpen(true)
+                    }}
+                  >
+                    <FileText className="w-4 h-4 mr-1" />
+                    Submissions
+                  </Button>
+                  <Button 
                     variant="outline" 
                     size="sm"
                     onClick={() => {
@@ -209,6 +223,11 @@ const TeacherAssignments = () => {
       <ManageTestCasesModal 
         open={testCasesModalOpen} 
         onOpenChange={setTestCasesModalOpen} 
+      />
+      <ViewSubmissionsModal 
+        open={submissionsModalOpen} 
+        onOpenChange={setSubmissionsModalOpen}
+        assignment={selectedAssignment}
       />
     </div>
   )
