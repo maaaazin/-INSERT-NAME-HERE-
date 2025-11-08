@@ -1,20 +1,42 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Trophy, Medal, Download } from 'lucide-react'
+import { Trophy, Medal, Download, Loader2 } from 'lucide-react'
+import { statsAPI } from '@/services/api'
 
 const TeacherLeaderboard = () => {
-  const leaderboard = [
-    { rank: 1, name: 'Alice Chen', score: '95%', submissions: 12, medal: 'gold' },
-    { rank: 2, name: 'Bob Kumar', score: '92%', submissions: 12, medal: 'silver' },
-    { rank: 3, name: 'Carol Zhang', score: '89%', submissions: 11, medal: 'bronze' },
-    { rank: 4, name: 'David Lee', score: '87%', submissions: 10 },
-    { rank: 5, name: 'Emma Wilson', score: '85%', submissions: 9 },
-    { rank: 6, name: 'Frank Miller', score: '83%', submissions: 8 },
-    { rank: 7, name: 'Grace Taylor', score: '80%', submissions: 7 },
-    { rank: 8, name: 'Henry Brown', score: '78%', submissions: 6 },
-  ]
+  const { user } = useAuth()
+  const [leaderboard, setLeaderboard] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedBatch, setSelectedBatch] = useState(null)
+
+  useEffect(() => {
+    fetchLeaderboard()
+  }, [user, selectedBatch])
+
+  const fetchLeaderboard = async () => {
+    setLoading(true)
+    try {
+      const data = await statsAPI.getLeaderboard(selectedBatch || null)
+      
+      const processed = (data || []).map((student, index) => ({
+        rank: student.rank || index + 1,
+        name: student.name,
+        score: `${student.score}%`,
+        submissions: student.submissions || 0,
+        medal: index < 3 ? ['gold', 'silver', 'bronze'][index] : null
+      }))
+      
+      setLeaderboard(processed)
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error)
+      setLeaderboard([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getMedalIcon = (medal) => {
     if (medal === 'gold') return <Medal className="w-5 h-5 text-yellow-500" />
@@ -52,7 +74,20 @@ const TeacherLeaderboard = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {leaderboard.map((student) => (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : leaderboard.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                    No leaderboard data available
+                  </TableCell>
+                </TableRow>
+              ) : (
+                leaderboard.map((student) => (
                 <TableRow key={student.rank}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -72,7 +107,8 @@ const TeacherLeaderboard = () => {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

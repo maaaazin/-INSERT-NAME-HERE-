@@ -1,59 +1,89 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { BookOpen, Code, Calendar, FileText, Clock } from 'lucide-react'
+import { BookOpen, Code, Calendar, FileText, Clock, Loader2 } from 'lucide-react'
+import { assignmentsAPI, submissionsAPI } from '@/services/api'
 
 const StudentAssignments = () => {
   const navigate = useNavigate()
-  
-  const assignments = [
-    {
-      id: 1,
-      title: 'Array Manipulation Basics',
-      dueDate: 'Nov 10, 2025',
-      language: 'Python',
-      status: 'submitted',
-      score: '95%',
-      timeRemaining: '2 days left',
-      description: 'Practice array operations and manipulations',
-      isPastDue: false
-    },
-    {
-      id: 2,
-      title: 'Recursion Challenge',
-      dueDate: 'Nov 12, 2025',
-      language: 'C++',
-      status: 'in-progress',
-      score: null,
-      timeRemaining: '4 days left',
-      description: 'Implement recursive solutions for common problems',
-      isPastDue: false
-    },
-    {
-      id: 3,
-      title: 'Binary Search Implementation',
-      dueDate: 'Nov 15, 2025',
-      language: 'Java',
-      status: 'not-started',
-      score: null,
-      timeRemaining: '7 days left',
-      description: 'Create an efficient binary search algorithm',
-      isPastDue: false
-    },
-    {
-      id: 4,
-      title: 'Sorting Algorithms',
-      dueDate: 'Nov 5, 2025',
-      language: 'Python',
-      status: 'submitted',
-      score: '88%',
-      timeRemaining: 'Past due',
-      description: 'Implement various sorting algorithms',
-      isPastDue: true
-    },
-  ]
+  const { user } = useAuth()
+  const [assignments, setAssignments] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAssignments()
+  }, [user])
+
+  const fetchAssignments = async () => {
+    setLoading(true)
+    try {
+      // Fetch all assignments
+      const allAssignments = await assignmentsAPI.getAll()
+      
+      // Fetch student's submissions to determine status
+      let submissions = []
+      if (user?.student_id) {
+        try {
+          submissions = await submissionsAPI.getByStudent(user.student_id)
+        } catch (error) {
+          console.error('Error fetching submissions:', error)
+        }
+      }
+
+      // Create a map of assignment_id to latest submission
+      const submissionMap = new Map()
+      submissions?.forEach(sub => {
+        if (!submissionMap.has(sub.assignment_id) || 
+            new Date(sub.submitted_at) > new Date(submissionMap.get(sub.assignment_id).submitted_at)) {
+          submissionMap.set(sub.assignment_id, sub)
+        }
+      })
+
+      // Process assignments
+      const processedAssignments = (allAssignments || []).map(assignment => {
+        const dueDate = new Date(assignment.due_date)
+        const now = new Date()
+        const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24))
+        const isPastDue = daysLeft < 0
+
+        const submission = submissionMap.get(assignment.assignment_id)
+        let status = 'not-started'
+        let score = null
+
+        if (submission) {
+          if (submission.status === 'graded' && submission.score > 0) {
+            status = 'submitted'
+            score = submission.max_score ? `${Math.round((submission.score / submission.max_score) * 100)}%` : '0%'
+          } else if (submission.status === 'pending') {
+            status = 'in-progress'
+          }
+        }
+
+        return {
+          id: assignment.assignment_id,
+          assignment_id: assignment.assignment_id,
+          title: assignment.title,
+          dueDate: dueDate.toLocaleDateString(),
+          language: assignment.language,
+          status,
+          score,
+          timeRemaining: daysLeft > 0 ? `${daysLeft} days left` : 'Past due',
+          description: assignment.description || 'No description available',
+          isPastDue
+        }
+      })
+
+      setAssignments(processedAssignments)
+    } catch (error) {
+      console.error('Error fetching assignments:', error)
+      setAssignments([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getButtonText = (assignment) => {
     if (assignment.isPastDue) {
@@ -99,7 +129,18 @@ const StudentAssignments = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Assignments List */}
         <div className="lg:col-span-2 space-y-4">
-          {assignments.map((assignment) => (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin" />
+            </div>
+          ) : assignments.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center text-gray-500">
+                No assignments available
+              </CardContent>
+            </Card>
+          ) : (
+            assignments.map((assignment) => (
             <Card key={assignment.id} className="hover:shadow-md transition-shadow">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -146,7 +187,8 @@ const StudentAssignments = () => {
                 </div>
               </CardContent>
             </Card>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Right Column - Upcoming Deadlines */}

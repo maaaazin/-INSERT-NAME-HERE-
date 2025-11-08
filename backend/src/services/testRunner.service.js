@@ -54,7 +54,6 @@ export async function runTestCases(code, language, assignmentId) {
 
   const avgRuntime = totalRuntime / testCases.length;
   const avgMemory = totalMemory / testCases.length;
-  const grade = calculateGrade(avgRuntime, avgMemory, passedTests, testCases.length);
 
   return {
     status: passedTests === testCases.length ? 'accepted' : 'failed',
@@ -62,7 +61,6 @@ export async function runTestCases(code, language, assignmentId) {
     totalTests: testCases.length,
     avgRuntime: Math.round(avgRuntime * 100) / 100,
     avgMemory: Math.round(avgMemory * 100) / 100,
-    grade,
     testResults: results
   };
 }

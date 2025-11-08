@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,65 +10,67 @@ import {
   Trash2,
   BarChart3,
   Download,
-  Plus
+  Plus,
+  Loader2
 } from 'lucide-react'
 import CreateAssignmentModal from '@/components/modals/CreateAssignmentModal'
 import ViewAssignmentModal from '@/components/modals/ViewAssignmentModal'
 import AnalyticsModal from '@/components/modals/AnalyticsModal'
 import EditAssignmentModal from '@/components/modals/EditAssignmentModal'
 import ManageTestCasesModal from '@/components/modals/ManageTestCasesModal'
+import { assignmentsAPI, statsAPI } from '@/services/api'
 
 const TeacherAssignments = () => {
+  const { user } = useAuth()
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [viewModalOpen, setViewModalOpen] = useState(false)
   const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [testCasesModalOpen, setTestCasesModalOpen] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState(null)
+  const [assignments, setAssignments] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  // Mock assignments data
-  const assignments = [
-    {
-      id: 1,
-      title: 'Array Manipulation Basics',
-      dueDate: 'Nov 10, 2025',
-      language: 'Python',
-      submissions: '28/30',
-      avgScore: '85%',
-      status: 'active',
-      createdAt: 'Oct 25, 2025'
-    },
-    {
-      id: 2,
-      title: 'Recursion Challenge',
-      dueDate: 'Nov 12, 2025',
-      language: 'C++',
-      submissions: '15/30',
-      avgScore: '78%',
-      status: 'active',
-      createdAt: 'Oct 28, 2025'
-    },
-    {
-      id: 3,
-      title: 'Binary Search Implementation',
-      dueDate: 'Nov 15, 2025',
-      language: 'Java',
-      submissions: '10/30',
-      avgScore: '82%',
-      status: 'active',
-      createdAt: 'Oct 30, 2025'
-    },
-    {
-      id: 4,
-      title: 'Sorting Algorithms',
-      dueDate: 'Nov 5, 2025',
-      language: 'Python',
-      submissions: '30/30',
-      avgScore: '88%',
-      status: 'closed',
-      createdAt: 'Oct 20, 2025'
-    },
-  ]
+  useEffect(() => {
+    fetchAssignments()
+  }, [user])
+
+  const fetchAssignments = async () => {
+    if (!user?.instructor_id) return
+    setLoading(true)
+    try {
+      const data = await assignmentsAPI.getByInstructor(user.instructor_id)
+      const assignmentsWithStats = await Promise.all(
+        (data || []).map(async (assignment) => {
+          const stats = await statsAPI.getAssignmentStats(assignment.assignment_id)
+          return {
+            ...assignment,
+            submissions: stats.submissions || '0/0',
+            avgScore: stats.averageScore || '0%',
+            dueDate: new Date(assignment.due_date).toLocaleDateString(),
+            createdAt: new Date(assignment.created_at).toLocaleDateString()
+          }
+        })
+      )
+      setAssignments(assignmentsWithStats)
+    } catch (error) {
+      console.error('Error fetching assignments:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (assignmentId) => {
+    if (!confirm('Are you sure you want to delete this assignment?')) return
+    try {
+      await assignmentsAPI.delete(assignmentId)
+      fetchAssignments()
+    } catch (error) {
+      console.error('Error deleting assignment:', error)
+      alert('Failed to delete assignment')
+    }
+  }
+
 
   return (
     <div className="space-y-6">
@@ -83,8 +86,19 @@ const TeacherAssignments = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4">
-        {assignments.map((assignment) => (
-          <Card key={assignment.id}>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : assignments.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center text-gray-500">
+              No assignments found. Create your first assignment!
+            </CardContent>
+          </Card>
+        ) : (
+          assignments.map((assignment) => (
+            <Card key={assignment.assignment_id}>
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -145,12 +159,20 @@ const TeacherAssignments = () => {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => setTestCasesModalOpen(true)}
+                    onClick={() => {
+                      setSelectedAssignment(assignment)
+                      setTestCasesModalOpen(true)
+                    }}
                   >
                     <FileText className="w-4 h-4 mr-1" />
                     Test Cases
                   </Button>
-                  <Button variant="outline" size="sm" className="text-red-500 hover:text-red-700">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="text-red-500 hover:text-red-700"
+                    onClick={() => handleDelete(assignment.assignment_id)}
+                  >
                     <Trash2 className="w-4 h-4 mr-1" />
                     Delete
                   </Button>
@@ -158,13 +180,15 @@ const TeacherAssignments = () => {
               </div>
             </CardContent>
           </Card>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Modals */}
       <CreateAssignmentModal 
         open={createModalOpen} 
-        onOpenChange={setCreateModalOpen} 
+        onOpenChange={setCreateModalOpen}
+        onSuccess={fetchAssignments}
       />
       <ViewAssignmentModal 
         open={viewModalOpen} 
@@ -180,6 +204,7 @@ const TeacherAssignments = () => {
         open={editModalOpen} 
         onOpenChange={setEditModalOpen}
         assignment={selectedAssignment}
+        onSuccess={fetchAssignments}
       />
       <ManageTestCasesModal 
         open={testCasesModalOpen} 

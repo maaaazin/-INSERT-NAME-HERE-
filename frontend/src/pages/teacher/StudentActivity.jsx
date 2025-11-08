@@ -1,24 +1,83 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Activity, AlertCircle, Send, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { Activity, AlertCircle, Send, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { submissionsAPI } from '@/services/api'
 
 const TeacherStudentActivity = () => {
-  const recentActivity = [
-    { id: 1, name: 'Alice Chen', action: 'submitted', assignment: 'Array Manipulation Basics', time: '2 min ago', status: 'success' },
-    { id: 2, name: 'Bob Kumar', action: 'attempted', assignment: 'Recursion Challenge', time: '15 min ago', status: 'info' },
-    { id: 3, name: 'Carol Zhang', action: 'failed a submission', assignment: 'Binary Search', time: '23 min ago', status: 'error' },
-    { id: 4, name: 'David Lee', action: 'submitted', assignment: 'Sorting Algorithms', time: '1 hour ago', status: 'success' },
-    { id: 5, name: 'Emma Wilson', action: 'submitted', assignment: 'Array Manipulation Basics', time: '2 hours ago', status: 'success' },
-    { id: 6, name: 'Frank Miller', action: 'attempted', assignment: 'Recursion Challenge', time: '3 hours ago', status: 'info' },
-  ]
+  const { user } = useAuth()
+  const [recentActivity, setRecentActivity] = useState([])
+  const [studentsNeedHelp, setStudentsNeedHelp] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const studentsNeedHelp = [
-    { id: 1, name: 'Frank Lee', issue: '5 failed submissions', priority: 'high', lastActivity: '2 days ago' },
-    { id: 2, name: 'Grace Taylor', issue: 'No submission yet', priority: 'medium', lastActivity: '5 days ago' },
-    { id: 3, name: 'Henry Brown', issue: '3 consecutive failures', priority: 'high', lastActivity: '1 day ago' },
-  ]
+  useEffect(() => {
+    fetchActivity()
+  }, [user])
+
+  const fetchActivity = async () => {
+    setLoading(true)
+    try {
+      // Fetch all recent submissions
+      const submissions = await submissionsAPI.getAll()
+      
+      // Process recent activity (last 10 submissions)
+      const recent = (submissions || [])
+        .slice(0, 10)
+        .map(sub => {
+          const submittedAt = new Date(sub.submitted_at)
+          const now = new Date()
+          const minutesAgo = Math.floor((now - submittedAt) / (1000 * 60))
+          const hoursAgo = Math.floor(minutesAgo / 60)
+          const daysAgo = Math.floor(hoursAgo / 24)
+          
+          let timeAgo = ''
+          if (minutesAgo < 60) {
+            timeAgo = `${minutesAgo} min ago`
+          } else if (hoursAgo < 24) {
+            timeAgo = `${hoursAgo} hour${hoursAgo > 1 ? 's' : ''} ago`
+          } else {
+            timeAgo = `${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`
+          }
+
+          const score = sub.max_score ? Math.round((sub.score / sub.max_score) * 100) : 0
+          let status = 'info'
+          let action = 'attempted'
+          
+          if (sub.status === 'graded' && score === 100) {
+            status = 'success'
+            action = 'submitted'
+          } else if (sub.status === 'graded' && score > 0) {
+            status = 'info'
+            action = 'submitted'
+          } else if (sub.status === 'graded' && score === 0) {
+            status = 'error'
+            action = 'failed a submission'
+          }
+
+          return {
+            id: sub.submission_id,
+            name: sub.students?.users?.name || 'Unknown Student',
+            action,
+            assignment: sub.assignments?.title || 'Unknown Assignment',
+            time: timeAgo,
+            status
+          }
+        })
+
+      setRecentActivity(recent)
+
+      // Students who might need help (simplified - would need more complex logic)
+      setStudentsNeedHelp([])
+    } catch (error) {
+      console.error('Error fetching activity:', error)
+      setRecentActivity([])
+      setStudentsNeedHelp([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getStatusDot = (status) => {
     const colors = {
@@ -52,7 +111,14 @@ const TeacherStudentActivity = () => {
               <CardTitle>Recent Activity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recentActivity.map((activity) => (
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : recentActivity.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">No recent activity</p>
+              ) : (
+                recentActivity.map((activity) => (
                 <div key={activity.id} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-gray-50">
                   {getStatusDot(activity.status)}
                   <div className="flex-1">
@@ -65,7 +131,8 @@ const TeacherStudentActivity = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
@@ -80,7 +147,14 @@ const TeacherStudentActivity = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {studentsNeedHelp.map((student) => (
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : studentsNeedHelp.length === 0 ? (
+                <p className="text-center text-gray-500 py-8 text-sm">No students need help at the moment</p>
+              ) : (
+                studentsNeedHelp.map((student) => (
                 <div
                   key={student.id}
                   className={`p-4 rounded-lg border ${
@@ -97,7 +171,8 @@ const TeacherStudentActivity = () => {
                     Send Mail
                   </Button>
                 </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </div>

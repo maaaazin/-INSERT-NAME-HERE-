@@ -4,6 +4,7 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import Login from '@/pages/Login'
+import Signup from '@/pages/Signup'
 
 // Teacher pages
 import TeacherDashboard from '@/pages/teacher/Dashboard'
@@ -24,6 +25,7 @@ const App = () => {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
           
           {/* Teacher Routes */}
           <Route

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,8 @@ import {
   Eye,
   Edit,
   Trash2,
-  ChevronDown
+  ChevronDown,
+  Loader2
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import CreateAssignmentModal from '@/components/modals/CreateAssignmentModal'
@@ -26,68 +27,96 @@ import ViewAssignmentModal from '@/components/modals/ViewAssignmentModal'
 import AnalyticsModal from '@/components/modals/AnalyticsModal'
 import EditAssignmentModal from '@/components/modals/EditAssignmentModal'
 import ManageTestCasesModal from '@/components/modals/ManageTestCasesModal'
+import { statsAPI, assignmentsAPI, batchesAPI } from '@/services/api'
 
 const TeacherDashboard = () => {
   const { user } = useAuth()
-  const [selectedBatch, setSelectedBatch] = useState('B1')
+  const [selectedBatch, setSelectedBatch] = useState(null)
+  const [batches, setBatches] = useState([])
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [viewModalOpen, setViewModalOpen] = useState(false)
   const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [testCasesModalOpen, setTestCasesModalOpen] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    activeAssignments: 0,
+    studentsSubmitted: '0/0',
+    averageScore: '0%',
+    mightNeedHelp: 0
+  })
+  const [assignments, setAssignments] = useState([])
+  const [leaderboard, setLeaderboard] = useState([])
 
-  // Mock data
+  // Fetch data
+  useEffect(() => {
+    fetchData()
+  }, [user, selectedBatch])
+
+  const fetchData = async () => {
+    if (!user?.instructor_id) return
+    
+    setLoading(true)
+    try {
+      // Fetch batches
+      const batchesData = await batchesAPI.getByInstructor(user.instructor_id)
+      setBatches(batchesData || [])
+      if (batchesData && batchesData.length > 0 && !selectedBatch) {
+        setSelectedBatch(batchesData[0].batch_id)
+      }
+
+      // Fetch stats
+      if (selectedBatch) {
+        const statsData = await statsAPI.getTeacherStats(user.instructor_id, selectedBatch)
+        setStats({
+          activeAssignments: statsData.activeAssignments || 0,
+          studentsSubmitted: statsData.studentsSubmitted || '0/0',
+          averageScore: statsData.averageScore || '0%',
+          mightNeedHelp: statsData.mightNeedHelp || 0
+        })
+
+        // Fetch leaderboard
+        const leaderboardData = await statsAPI.getLeaderboard(selectedBatch)
+        setLeaderboard(leaderboardData || [])
+      }
+
+      // Fetch assignments
+      const assignmentsData = await assignmentsAPI.getByInstructor(user.instructor_id)
+      const activeAssignments = (assignmentsData || [])
+        .filter(a => a.status === 'active')
+        .slice(0, 3)
+        .map(async (assignment) => {
+          const assignmentStats = await statsAPI.getAssignmentStats(assignment.assignment_id)
+          return {
+            ...assignment,
+            assignment_id: assignment.assignment_id,
+            title: assignment.title,
+            dueDate: new Date(assignment.due_date).toLocaleDateString(),
+            language: assignment.language,
+            submissions: assignmentStats.submissions || '0/0',
+            avgScore: assignmentStats.averageScore || '0%',
+            status: assignment.status
+          }
+        })
+      const resolvedAssignments = await Promise.all(activeAssignments)
+      setAssignments(resolvedAssignments)
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const metrics = [
-    { label: 'Active Assignments', value: '3', icon: FileText, color: 'text-blue-600' },
-    { label: 'Students Submitted', value: '28/30', icon: Users, color: 'text-green-600' },
-    { label: 'Average Score', value: '85%', icon: TrendingUp, color: 'text-purple-600' },
-    { label: 'Might Need Help', value: '5', icon: AlertCircle, color: 'text-red-600' },
+    { label: 'Active Assignments', value: stats.activeAssignments.toString(), icon: FileText, color: 'text-blue-600' },
+    { label: 'Students Submitted', value: stats.studentsSubmitted, icon: Users, color: 'text-green-600' },
+    { label: 'Average Score', value: stats.averageScore, icon: TrendingUp, color: 'text-purple-600' },
+    { label: 'Might Need Help', value: stats.mightNeedHelp.toString(), icon: AlertCircle, color: 'text-red-600' },
   ]
 
-  const recentActivity = [
-    { name: 'Alice Chen', action: 'submitted', time: '2 min ago', status: 'success' },
-    { name: 'Bob Kumar', action: 'attempted', time: '15 min ago', status: 'info' },
-    { name: 'Carol Zhang', action: 'failed a submission', time: '23 min ago', status: 'error' },
-  ]
-
-  const studentsNeedHelp = [
-    { name: 'Frank Lee', issue: '5 failed submissions', priority: 'high' },
-    { name: 'Grace Taylor', issue: 'No submission yet', priority: 'medium' },
-  ]
-
-  const upcomingAssignments = [
-    {
-      title: 'Array Manipulation Basics',
-      dueDate: 'Nov 10, 2025',
-      language: 'Python',
-      submissions: '28/30',
-      avgScore: '85%',
-      status: 'active'
-    },
-    {
-      title: 'Recursion Challenge',
-      dueDate: 'Nov 12, 2025',
-      language: 'C++',
-      submissions: '15/30',
-      avgScore: '78%',
-      status: 'active'
-    },
-    {
-      title: 'Binary Search Implementation',
-      dueDate: 'Nov 15, 2025',
-      language: 'Java',
-      submissions: '10/30',
-      avgScore: '82%',
-      status: 'active'
-    },
-  ]
-
-  const leaderboard = [
-    { rank: 1, name: 'Alice Chen', score: '95%', submissions: 12, medal: 'gold' },
-    { rank: 2, name: 'Bob Kumar', score: '92%', submissions: 12, medal: 'silver' },
-    { rank: 3, name: 'Carol Zhang', score: '89%', submissions: 11, medal: 'bronze' },
-  ]
+  const recentActivity = [] // TODO: Fetch from submissions
+  const studentsNeedHelp = [] // TODO: Fetch from stats
 
   const getStatusDot = (status) => {
     const colors = {
@@ -115,10 +144,22 @@ const TeacherDashboard = () => {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-2">
-                  Batch {selectedBatch}
+                  {selectedBatch 
+                    ? `Batch ${batches.find(b => b.batch_id === selectedBatch)?.batch_name || selectedBatch}`
+                    : 'Select Batch'}
                   <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {batches.map((batch) => (
+                  <DropdownMenuItem 
+                    key={batch.batch_id}
+                    onClick={() => setSelectedBatch(batch.batch_id)}
+                  >
+                    {batch.batch_name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
             </DropdownMenu>
             
             <Button 
@@ -242,7 +283,14 @@ const TeacherDashboard = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {upcomingAssignments.map((assignment, index) => (
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : assignments.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">No active assignments</p>
+              ) : (
+                assignments.map((assignment, index) => (
                 <div key={index} className="p-4 border rounded-lg space-y-3">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -315,7 +363,8 @@ const TeacherDashboard = () => {
                     </div>
                   )}
                 </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -344,19 +393,33 @@ const TeacherDashboard = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {leaderboard.map((student) => (
-                    <TableRow key={student.rank}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getMedalIcon(student.medal)}
-                          <span className="font-semibold">{student.rank}</span>
-                        </div>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto" />
                       </TableCell>
-                      <TableCell className="font-medium">{student.name}</TableCell>
-                      <TableCell>{student.score}</TableCell>
-                      <TableCell>{student.submissions}</TableCell>
                     </TableRow>
-                  ))}
+                  ) : leaderboard.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-gray-500 py-8">
+                        No leaderboard data available
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    leaderboard.slice(0, 10).map((student, index) => (
+                      <TableRow key={student.student_id || index}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {index < 3 && getMedalIcon(['gold', 'silver', 'bronze'][index])}
+                            <span className="font-semibold">{student.rank || index + 1}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">{student.name}</TableCell>
+                        <TableCell>{student.score}%</TableCell>
+                        <TableCell>{student.submissions}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -367,7 +430,8 @@ const TeacherDashboard = () => {
       {/* Modals */}
       <CreateAssignmentModal 
         open={createModalOpen} 
-        onOpenChange={setCreateModalOpen} 
+        onOpenChange={setCreateModalOpen}
+        onSuccess={fetchData}
       />
       <ViewAssignmentModal 
         open={viewModalOpen} 
@@ -383,6 +447,7 @@ const TeacherDashboard = () => {
         open={editModalOpen} 
         onOpenChange={setEditModalOpen}
         assignment={selectedAssignment}
+        onSuccess={fetchData}
       />
       <ManageTestCasesModal 
         open={testCasesModalOpen} 

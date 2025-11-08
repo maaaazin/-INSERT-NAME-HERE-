@@ -1,61 +1,69 @@
 import { GRADING_THRESHOLDS } from '../config/constants.js';
 
-export function calculateGrade(avgRuntime, avgMemory, passedTests, totalTests) {
-  // If not all tests passed, grade is based on pass rate
+/**
+ * Calculate percentage score based on test case results and performance
+ * @param {number} avgRuntime - Average runtime in milliseconds
+ * @param {number} avgMemory - Average memory usage in MB
+ * @param {number} passedTests - Number of passed test cases
+ * @param {number} totalTests - Total number of test cases
+ * @param {number} maxScore - Maximum possible score (default 100)
+ * @returns {number} Percentage score (0-100)
+ */
+export function calculateGrade(avgRuntime, avgMemory, passedTests, totalTests, maxScore = 100) {
+  if (totalTests === 0) return 0;
+  
+  // Base score: percentage of tests passed
   const passRate = passedTests / totalTests;
+  let baseScore = passRate * maxScore;
   
-  if (passRate < 0.5) return 'F';
-  if (passRate < 0.7) return 'D';
-  if (passRate < 0.85) return 'C';
-  
-  // If all tests passed, grade based on performance
+  // If all tests passed, apply performance bonuses/penalties
   if (passRate === 1) {
-    const runtimeGrade = getRuntimeGrade(avgRuntime);
-    const memoryGrade = getMemoryGrade(avgMemory);
-    
-    // Average the two grades
-    return averageGrades(runtimeGrade, memoryGrade);
+    const performanceBonus = calculatePerformanceBonus(avgRuntime, avgMemory, maxScore);
+    baseScore = Math.min(maxScore, baseScore + performanceBonus);
   }
   
-  return 'B'; // 85-99% pass rate
+  // Round to 2 decimal places
+  return Math.round(baseScore * 100) / 100;
 }
 
-function getRuntimeGrade(runtime) {
-  const thresholds = GRADING_THRESHOLDS.runtime;
+/**
+ * Calculate performance bonus based on runtime and memory
+ * Excellent performance gets small bonus, poor performance gets penalty
+ * @param {number} avgRuntime - Average runtime in milliseconds
+ * @param {number} avgMemory - Average memory usage in MB
+ * @param {number} maxScore - Maximum possible score
+ * @returns {number} Bonus/penalty percentage points (-5 to +5)
+ */
+function calculatePerformanceBonus(avgRuntime, avgMemory, maxScore) {
+  const thresholds = GRADING_THRESHOLDS;
+  let bonus = 0;
   
-  if (runtime < thresholds.excellent) return 'A+';
-  if (runtime < thresholds.good) return 'A';
-  if (runtime < thresholds.average) return 'B';
-  if (runtime < thresholds.belowAverage) return 'C';
-  return 'D';
-}
-
-function getMemoryGrade(memory) {
-  const thresholds = GRADING_THRESHOLDS.memory;
+  // Runtime bonus/penalty (max ±2.5%)
+  if (avgRuntime < thresholds.runtime.excellent) {
+    bonus += 2.5; // Excellent runtime
+  } else if (avgRuntime < thresholds.runtime.good) {
+    bonus += 1.5; // Good runtime
+  } else if (avgRuntime < thresholds.runtime.average) {
+    bonus += 0; // Average runtime
+  } else if (avgRuntime < thresholds.runtime.belowAverage) {
+    bonus -= 1; // Below average runtime
+  } else {
+    bonus -= 2.5; // Poor runtime
+  }
   
-  if (memory < thresholds.excellent) return 'A+';
-  if (memory < thresholds.good) return 'A';
-  if (memory < thresholds.average) return 'B';
-  if (memory < thresholds.belowAverage) return 'C';
-  return 'D';
-}
-
-function averageGrades(grade1, grade2) {
-  const gradeValues = {
-    'A+': 4.3,
-    'A': 4.0,
-    'B': 3.0,
-    'C': 2.0,
-    'D': 1.0,
-    'F': 0.0
-  };
+  // Memory bonus/penalty (max ±2.5%)
+  if (avgMemory < thresholds.memory.excellent) {
+    bonus += 2.5; // Excellent memory
+  } else if (avgMemory < thresholds.memory.good) {
+    bonus += 1.5; // Good memory
+  } else if (avgMemory < thresholds.memory.average) {
+    bonus += 0; // Average memory
+  } else if (avgMemory < thresholds.memory.belowAverage) {
+    bonus -= 1; // Below average memory
+  } else {
+    bonus -= 2.5; // Poor memory
+  }
   
-  const avg = (gradeValues[grade1] + gradeValues[grade2]) / 2;
-  
-  if (avg >= 4.15) return 'A+';
-  if (avg >= 3.5) return 'A';
-  if (avg >= 2.5) return 'B';
-  if (avg >= 1.5) return 'C';
-  if (avg >= 0.5) return 'D';
-  return 'F';
+  // Cap bonus/penalty between -5% and +5%
+  return Math.max(-5, Math.min(5, bonus));
 }

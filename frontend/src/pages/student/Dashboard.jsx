@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,69 +12,112 @@ import {
   FileText,
   Code,
   Calendar,
-  Award
+  Award,
+  Loader2
 } from 'lucide-react'
+import { statsAPI, assignmentsAPI, submissionsAPI } from '@/services/api'
+import { useNavigate } from 'react-router-dom'
 
 const StudentDashboard = () => {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    assignmentsCompleted: 0,
+    averageScore: '0%',
+    pendingAssignments: 0,
+    currentRank: null
+  })
+  const [activeAssignments, setActiveAssignments] = useState([])
+  const [recentSubmissions, setRecentSubmissions] = useState([])
 
-  // Mock data
-  const stats = [
-    { label: 'Assignments Completed', value: '12', icon: CheckCircle2, color: 'text-green-600' },
-    { label: 'Average Score', value: '87%', icon: TrendingUp, color: 'text-blue-600' },
-    { label: 'Pending Assignments', value: '3', icon: Clock, color: 'text-yellow-600' },
-    { label: 'Current Rank', value: '#5', icon: Award, color: 'text-purple-600' },
-  ]
+  useEffect(() => {
+    fetchData()
+  }, [user])
 
-  const activeAssignments = [
-    {
-      title: 'Array Manipulation Basics',
-      dueDate: 'Nov 10, 2025',
-      language: 'Python',
-      status: 'submitted',
-      score: '95%',
-      timeRemaining: '2 days left'
-    },
-    {
-      title: 'Recursion Challenge',
-      dueDate: 'Nov 12, 2025',
-      language: 'C++',
-      status: 'in-progress',
-      score: null,
-      timeRemaining: '4 days left'
-    },
-    {
-      title: 'Binary Search Implementation',
-      dueDate: 'Nov 15, 2025',
-      language: 'Java',
-      status: 'not-started',
-      score: null,
-      timeRemaining: '7 days left'
-    },
-  ]
+  const fetchData = async () => {
+    if (!user?.student_id) return
+    
+    setLoading(true)
+    try {
+      // Fetch stats
+      const statsData = await statsAPI.getStudentStats(user.student_id)
+      setStats({
+        assignmentsCompleted: statsData.assignmentsCompleted || 0,
+        averageScore: statsData.averageScore || '0%',
+        pendingAssignments: statsData.pendingAssignments || 0,
+        currentRank: statsData.currentRank || null
+      })
 
-  const recentSubmissions = [
-    {
-      assignment: 'Array Manipulation Basics',
-      submittedAt: 'Nov 8, 2025',
-      score: '95%',
-      status: 'accepted',
-      language: 'Python'
-    },
-    {
-      assignment: 'Sorting Algorithms',
-      submittedAt: 'Nov 5, 2025',
-      score: '88%',
-      status: 'accepted',
-      language: 'Python'
-    },
-    {
-      assignment: 'Data Structures',
-      submittedAt: 'Nov 3, 2025',
-      score: '92%',
-      status: 'accepted',
-      language: 'Java'
-    },
+      // Fetch all assignments and filter active ones
+      const allAssignments = await assignmentsAPI.getAll()
+      const active = (allAssignments || [])
+        .filter(a => a.status === 'active')
+        .slice(0, 3)
+        .map(assignment => {
+          const dueDate = new Date(assignment.due_date)
+          const now = new Date()
+          const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24))
+          
+          return {
+            assignment_id: assignment.assignment_id,
+            title: assignment.title,
+            dueDate: dueDate.toLocaleDateString(),
+            language: assignment.language,
+            status: 'not-started', // Will be updated based on submissions
+            score: null,
+            timeRemaining: daysLeft > 0 ? `${daysLeft} days left` : 'Past due',
+            isPastDue: daysLeft < 0
+          }
+        })
+      setActiveAssignments(active)
+
+      // Fetch recent submissions
+      const submissionsData = await submissionsAPI.getByStudent(user.student_id)
+      const recent = (submissionsData || [])
+        .slice(0, 3)
+        .map(sub => ({
+          assignment: sub.assignments?.title || 'Unknown',
+          submittedAt: new Date(sub.submitted_at).toLocaleDateString(),
+          score: sub.max_score ? `${Math.round((sub.score / sub.max_score) * 100)}%` : '0%',
+          status: sub.status === 'graded' && sub.score > 0 ? 'accepted' : 'pending',
+          language: sub.language
+        }))
+      setRecentSubmissions(recent)
+
+      // Update assignment statuses based on submissions
+      const submissionMap = new Map()
+      submissionsData?.forEach(sub => {
+        if (!submissionMap.has(sub.assignment_id) || 
+            new Date(sub.submitted_at) > new Date(submissionMap.get(sub.assignment_id).submitted_at)) {
+          submissionMap.set(sub.assignment_id, sub)
+        }
+      })
+
+      setActiveAssignments(prev => prev.map(assignment => {
+        const submission = submissionMap.get(assignment.assignment_id)
+        if (submission) {
+          const score = submission.max_score ? Math.round((submission.score / submission.max_score) * 100) : 0
+          return {
+            ...assignment,
+            status: 'submitted',
+            score: `${score}%`
+          }
+        }
+        return assignment
+      }))
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const statsCards = [
+    { label: 'Assignments Completed', value: stats.assignmentsCompleted.toString(), icon: CheckCircle2, color: 'text-green-600' },
+    { label: 'Average Score', value: stats.averageScore, icon: TrendingUp, color: 'text-blue-600' },
+    { label: 'Pending Assignments', value: stats.pendingAssignments.toString(), icon: Clock, color: 'text-yellow-600' },
+    { label: 'Current Rank', value: stats.currentRank ? `#${stats.currentRank}` : 'N/A', icon: Award, color: 'text-purple-600' },
   ]
 
   const getStatusBadge = (status) => {
@@ -99,22 +142,34 @@ const StudentDashboard = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon
-          return (
+        {loading ? (
+          Array.from({ length: 4 }).map((_, index) => (
             <Card key={index}>
               <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
-                    <p className="text-2xl font-bold">{stat.value}</p>
-                  </div>
-                  <Icon className={`w-8 h-8 ${stat.color}`} />
+                <div className="flex items-center justify-center h-20">
+                  <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
               </CardContent>
             </Card>
-          )
-        })}
+          ))
+        ) : (
+          statsCards.map((stat, index) => {
+            const Icon = stat.icon
+            return (
+              <Card key={index}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
+                      <p className="text-2xl font-bold">{stat.value}</p>
+                    </div>
+                    <Icon className={`w-8 h-8 ${stat.color}`} />
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -128,8 +183,15 @@ const StudentDashboard = () => {
                 Active Assignments
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {activeAssignments.map((assignment, index) => (
+                <CardContent className="space-y-4">
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    </div>
+                  ) : activeAssignments.length === 0 ? (
+                    <p className="text-center text-gray-500 py-8">No active assignments</p>
+                  ) : (
+                    activeAssignments.map((assignment, index) => (
                 <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -156,18 +218,23 @@ const StudentDashboard = () => {
                       {getStatusBadge(assignment.status)}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 pt-2 border-t">
-                    <Button size="sm" className="flex-1">
-                      {assignment.status === 'not-started' ? 'Start Assignment' : 'Continue'}
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <FileText className="w-4 h-4 mr-1" />
-                      View Details
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
+                      <div className="flex items-center gap-2 pt-2 border-t">
+                        <Button 
+                          size="sm" 
+                          className="flex-1"
+                          onClick={() => navigate(`/student/assignments/${assignment.assignment_id}/attempt`)}
+                        >
+                          {assignment.status === 'not-started' ? 'Start Assignment' : assignment.status === 'submitted' ? 'View Submission' : 'Continue'}
+                        </Button>
+                        <Button variant="outline" size="sm">
+                          <FileText className="w-4 h-4 mr-1" />
+                          View Details
+                        </Button>
+                      </div>
+                    </div>
+                    ))
+                  )}
+                </CardContent>
           </Card>
 
           {/* Recent Submissions */}
@@ -185,18 +252,32 @@ const StudentDashboard = () => {
                     <TableHead>Score</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentSubmissions.map((submission, index) => (
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                          </TableCell>
+                        </TableRow>
+                      ) : recentSubmissions.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                            No submissions yet
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        recentSubmissions.map((submission, index) => (
                     <TableRow key={index}>
                       <TableCell className="font-medium">{submission.assignment}</TableCell>
                       <TableCell>{submission.language}</TableCell>
                       <TableCell>{submission.submittedAt}</TableCell>
                       <TableCell className="font-semibold">{submission.score}</TableCell>
-                      <TableCell>{getStatusBadge(submission.status)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
+                          <TableCell>{getStatusBadge(submission.status)}</TableCell>
+                        </TableRow>
+                        ))
+                      )}
+                    </TableBody>
               </Table>
             </CardContent>
           </Card>

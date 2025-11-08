@@ -1,28 +1,62 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
+import { Loader2 } from 'lucide-react'
+
+const API_BASE_URL = 'http://localhost:3000/api'
 
 const Login = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('student')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    const user = login(email, password, role)
-    
-    // Navigate based on role
-    if (user.role === 'teacher') {
-      navigate('/teacher/dashboard')
-    } else {
-      navigate('/student/dashboard')
+    setError('')
+    setLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed')
+      }
+
+      // Store token and user
+      localStorage.setItem('token', data.token)
+      localStorage.setItem('user', JSON.stringify(data.user))
+
+      // Update auth context
+      login(data.user, data.token)
+      
+      // Navigate based on role
+      if (data.user.role === 'teacher') {
+        navigate('/teacher/dashboard')
+      } else {
+        navigate('/student/dashboard')
+      }
+    } catch (err) {
+      setError(err.message || 'An error occurred during login')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -37,6 +71,12 @@ const Login = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                {error}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -59,20 +99,23 @@ const Login = () => {
                 required
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <Select
-                id="role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              >
-                <option value="student">Student</option>
-                <option value="teacher">Teacher</option>
-              </Select>
-            </div>
-            <Button type="submit" className="w-full">
-              Sign In
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </Button>
+
+            <div className="text-center text-sm text-gray-600">
+              Don't have an account?{' '}
+              <Link to="/signup" className="text-blue-600 hover:underline">
+                Sign up
+              </Link>
+            </div>
           </form>
         </CardContent>
       </Card>

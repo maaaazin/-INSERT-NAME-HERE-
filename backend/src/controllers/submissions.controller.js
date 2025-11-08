@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase.js';
 import { runTestCases } from '../services/testRunner.service.js';
 import { executeCode } from '../services/piston.service.js';
+import { calculateGrade } from '../services/grading.service.js';
 
 // Get all submissions
 export async function getSubmissions(req, res) {
@@ -201,8 +202,18 @@ export async function executeAndSubmit(req, res) {
     // Run test cases
     const testResults = await runTestCases(code, language, assignment_id);
 
-    // Calculate score
-    const score = Math.round((testResults.passedTests / testResults.totalTests) * (assignment.max_score || 100));
+    // Calculate percentage score based on test results and performance
+    const maxScore = assignment.max_score || 100;
+    const score = calculateGrade(
+      testResults.avgRuntime,
+      testResults.avgMemory,
+      testResults.passedTests,
+      testResults.totalTests,
+      maxScore
+    );
+    
+    // Ensure score is between 0 and maxScore
+    const finalScore = Math.max(0, Math.min(maxScore, Math.round(score)));
 
     // Create or update submission
     let submission;
@@ -224,8 +235,8 @@ export async function executeAndSubmit(req, res) {
           .update({
             code,
             language,
-            score,
-            max_score: assignment.max_score || 100,
+            score: finalScore,
+            max_score: maxScore,
             status: testResults.status === 'accepted' ? 'graded' : 'graded',
             avg_execution_time: testResults.avgRuntime,
             graded_at: new Date().toISOString()
@@ -245,8 +256,8 @@ export async function executeAndSubmit(req, res) {
             student_id,
             code,
             language,
-            score,
-            max_score: assignment.max_score || 100,
+            score: finalScore,
+            max_score: maxScore,
             status: testResults.status === 'accepted' ? 'graded' : 'graded',
             avg_execution_time: testResults.avgRuntime
           })
@@ -287,7 +298,9 @@ export async function executeAndSubmit(req, res) {
     res.json({
       submission,
       testResults,
-      score,
+      score: finalScore,
+      maxScore: maxScore,
+      percentage: Math.round((finalScore / maxScore) * 100),
       status: testResults.status
     });
   } catch (error) {
