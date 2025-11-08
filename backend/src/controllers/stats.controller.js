@@ -133,10 +133,34 @@ export async function getStudentDashboardStats(req, res) {
 
     if (submissionsError) throw submissionsError;
 
-    // Calculate stats
-    const completed = submissions?.filter(s => s.status === 'graded' && s.score > 0).length || 0;
-    const avgScore = submissions && submissions.length > 0
-      ? Math.round((submissions.reduce((sum, s) => sum + (s.score || 0), 0) / submissions.length))
+    // Calculate stats using average scores per assignment
+    const assignmentScores = {};
+    submissions?.forEach(sub => {
+      if (sub.status === 'graded' && sub.score !== null) {
+        const assignmentId = sub.assignment_id;
+        if (!assignmentScores[assignmentId]) {
+          assignmentScores[assignmentId] = [];
+        }
+        assignmentScores[assignmentId].push(sub);
+      }
+    });
+
+    // Calculate average per assignment, then overall average
+    const assignmentAverages = [];
+    Object.keys(assignmentScores).forEach(assignmentId => {
+      const subs = assignmentScores[assignmentId];
+      if (subs.length > 0) {
+        const totalScore = subs.reduce((sum, s) => sum + (s.score || 0), 0);
+        const maxScore = subs[0].max_score || 100;
+        const avgScore = totalScore / subs.length;
+        const avgPercentage = Math.round((avgScore / maxScore) * 100);
+        assignmentAverages.push(avgPercentage);
+      }
+    });
+
+    const completed = assignmentAverages.length;
+    const avgScore = assignmentAverages.length > 0
+      ? Math.round(assignmentAverages.reduce((sum, s) => sum + s, 0) / assignmentAverages.length)
       : 0;
 
     // Get student's batch_id first
