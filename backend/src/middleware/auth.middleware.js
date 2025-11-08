@@ -1,9 +1,22 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error('❌ CRITICAL: JWT_SECRET environment variable is not set!');
+  console.error('   Authentication will not work. Please set JWT_SECRET in your .env file.');
+  // In production, we should exit, but in development we'll use a warning
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+}
 
 // Middleware to authenticate JWT token
 export function authenticateToken(req, res, next) {
+  if (!JWT_SECRET) {
+    return res.status(500).json({ error: 'Server configuration error: JWT_SECRET not set' });
+  }
+
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 

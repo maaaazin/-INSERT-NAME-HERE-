@@ -7,26 +7,27 @@ import {
   getSubmissionsByStudent,
   executeAndSubmit
 } from '../controllers/submissions.controller.js';
+import { authenticateToken, requireRole } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// Get all submissions
-router.get('/', getSubmissions);
+// Get all submissions (teacher only - to view all submissions)
+router.get('/', authenticateToken, requireRole('teacher'), getSubmissions);
 
-// Get submissions by assignment
-router.get('/assignment/:assignmentId', getSubmissionsByAssignment);
+// Get submissions by assignment (teacher only)
+router.get('/assignment/:assignmentId', authenticateToken, requireRole('teacher'), getSubmissionsByAssignment);
 
-// Get submissions by student
-router.get('/student/:studentId', getSubmissionsByStudent);
+// Get submissions by student (student can view their own, teacher can view any)
+router.get('/student/:studentId', authenticateToken, getSubmissionsByStudent);
 
-// Get submission by ID
-router.get('/:submissionId', getSubmissionById);
+// Get submission by ID (authenticated users)
+router.get('/:submissionId', authenticateToken, getSubmissionById);
 
-// Create submission
-router.post('/', createSubmission);
+// Create submission (authenticated users - students submit)
+router.post('/', authenticateToken, createSubmission);
 
-// Execute and submit code
-router.post('/execute', executeAndSubmit);
+// Execute and submit code (authenticated users - students submit)
+router.post('/execute', authenticateToken, executeAndSubmit);
 
 export default router;
 

@@ -237,7 +237,7 @@ export async function executeAndSubmit(req, res) {
             language,
             score: finalScore,
             max_score: maxScore,
-            status: testResults.status === 'accepted' ? 'graded' : 'graded',
+            status: testResults.status === 'accepted' ? 'graded' : 'error',
             avg_execution_time: testResults.avgRuntime,
             graded_at: new Date().toISOString()
           })
@@ -258,7 +258,7 @@ export async function executeAndSubmit(req, res) {
             language,
             score: finalScore,
             max_score: maxScore,
-            status: testResults.status === 'accepted' ? 'graded' : 'graded',
+            status: testResults.status === 'accepted' ? 'graded' : 'error',
             avg_execution_time: testResults.avgRuntime
           })
           .select()
@@ -268,19 +268,26 @@ export async function executeAndSubmit(req, res) {
         submission = data;
       }
 
+      // Delete old test results before inserting new ones (to prevent duplicates)
+      await supabase
+        .from('test_results')
+        .delete()
+        .eq('submission_id', submission.submission_id);
+
       // Save test results
-      const testCases = await supabase
+      const { data: testCases, error: testCasesError } = await supabase
         .from('test_cases')
         .select('test_case_id')
         .eq('assignment_id', assignment_id);
 
-      if (testCases.data) {
-        for (const testResult of testResults.testResults) {
-          const testCase = testCases.data.find(tc => tc.test_case_id === testResult.testCaseId);
-          if (testCase) {
-            await supabase
-              .from('test_results')
-              .insert({
+      if (testCasesError) throw testCasesError;
+
+      if (testCases && testCases.length > 0) {
+        const testResultsToInsert = testResults.testResults
+          .map(testResult => {
+            const testCase = testCases.find(tc => tc.test_case_id === testResult.testCaseId);
+            if (testCase) {
+              return {
                 submission_id: submission.submission_id,
                 test_case_id: testCase.test_case_id,
                 passed: testResult.passed,
@@ -289,8 +296,18 @@ export async function executeAndSubmit(req, res) {
                 memory_used: testResult.memory,
                 error_message: testResult.error,
                 status: testResult.passed ? 'Accepted' : 'Wrong Answer'
-              });
-          }
+              };
+            }
+            return null;
+          })
+          .filter(result => result !== null);
+
+        if (testResultsToInsert.length > 0) {
+          const { error: insertError } = await supabase
+            .from('test_results')
+            .insert(testResultsToInsert);
+
+          if (insertError) throw insertError;
         }
       }
     }

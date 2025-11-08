@@ -8,29 +8,30 @@ import {
   getAssignmentsByBatch,
   getAssignmentsByInstructor
 } from '../controllers/assignments.controller.js';
+import { authenticateToken, requireRole } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// Get all assignments
-router.get('/', getAssignments);
+// Get all assignments (public - students and teachers can view)
+router.get('/', authenticateToken, getAssignments);
 
-// Get assignments by batch
-router.get('/batch/:batchId', getAssignmentsByBatch);
+// Get assignments by batch (public)
+router.get('/batch/:batchId', authenticateToken, getAssignmentsByBatch);
 
-// Get assignments by instructor
-router.get('/instructor/:instructorId', getAssignmentsByInstructor);
+// Get assignments by instructor (public)
+router.get('/instructor/:instructorId', authenticateToken, getAssignmentsByInstructor);
 
-// Get assignment by ID
-router.get('/:assignmentId', getAssignmentById);
+// Get assignment by ID (public)
+router.get('/:assignmentId', authenticateToken, getAssignmentById);
 
-// Create assignment
-router.post('/', createAssignment);
+// Create assignment (teacher only)
+router.post('/', authenticateToken, requireRole('teacher'), createAssignment);
 
-// Update assignment
-router.put('/:assignmentId', updateAssignment);
+// Update assignment (teacher only)
+router.put('/:assignmentId', authenticateToken, requireRole('teacher'), updateAssignment);
 
-// Delete assignment
-router.delete('/:assignmentId', deleteAssignment);
+// Delete assignment (teacher only)
+router.delete('/:assignmentId', authenticateToken, requireRole('teacher'), deleteAssignment);
 
 export default router;
 

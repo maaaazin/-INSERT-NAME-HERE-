@@ -37,10 +37,10 @@ export async function getTeacherDashboardStats(req, res) {
 
     if (studentsError) throw studentsError;
 
-    // Get submissions for active assignments
+    // Get submissions for active assignments (include student_id for proper filtering)
     const { data: submissions, error: submissionsError } = await supabase
       .from('submissions')
-      .select('submission_id, assignment_id, score, max_score, status')
+      .select('submission_id, assignment_id, student_id, score, max_score, status')
       .in('assignment_id', activeAssignmentIds.length > 0 ? activeAssignmentIds : [0]);
 
     if (submissionsError) throw submissionsError;
@@ -52,7 +52,7 @@ export async function getTeacherDashboardStats(req, res) {
       : 0;
 
     // Get students who might need help (low scores or no submissions)
-    const { data: allStudents, error: allStudentsError } = await supabase
+    let studentsListQuery = supabase
       .from('students')
       .select(`
         student_id,
@@ -61,22 +61,36 @@ export async function getTeacherDashboardStats(req, res) {
           name,
           email
         )
-      `)
-      .eq('batch_id', batchId || 0);
+      `);
+
+    if (batchId) {
+      studentsListQuery = studentsListQuery.eq('batch_id', batchId);
+    }
+
+    const { data: allStudents, error: allStudentsError } = await studentsListQuery;
+
+    if (allStudentsError) throw allStudentsError;
 
     const studentsNeedHelp = [];
     if (allStudents) {
       for (const student of allStudents) {
-        const studentSubmissions = submissions?.filter(s => {
-          // Need to join to get student_id from submissions
-          return true; // Simplified for now
-        }) || [];
+        // Get actual student submissions by fetching with student_id
+        const { data: studentSubs } = await supabase
+          .from('submissions')
+          .select('score, max_score, status')
+          .eq('student_id', student.student_id)
+          .in('assignment_id', activeAssignmentIds.length > 0 ? activeAssignmentIds : []);
 
-        if (studentSubmissions.length === 0 || studentSubmissions.some(s => (s.score || 0) < 50)) {
+        const hasLowScores = studentSubs?.some(s => {
+          const percentage = s.max_score > 0 ? (s.score || 0) / s.max_score * 100 : 0;
+          return percentage < 50;
+        });
+
+        if (!studentSubs || studentSubs.length === 0 || hasLowScores) {
           studentsNeedHelp.push({
             student_id: student.student_id,
             name: student.users?.name || 'Unknown',
-            issue: studentSubmissions.length === 0 ? 'No submission yet' : 'Low scores'
+            issue: !studentSubs || studentSubs.length === 0 ? 'No submission yet' : 'Low scores'
           });
         }
       }
@@ -125,11 +139,26 @@ export async function getStudentDashboardStats(req, res) {
       ? Math.round((submissions.reduce((sum, s) => sum + (s.score || 0), 0) / submissions.length))
       : 0;
 
-    // Get pending assignments
-    const { data: allAssignments, error: assignmentsError } = await supabase
+    // Get student's batch_id first
+    const { data: studentData, error: studentDataError } = await supabase
+      .from('students')
+      .select('batch_id')
+      .eq('student_id', studentId)
+      .single();
+
+    if (studentDataError) throw studentDataError;
+
+    // Get pending assignments for student's batch only
+    let assignmentsQuery = supabase
       .from('assignments')
-      .select('assignment_id, title, due_date, status')
+      .select('assignment_id, title, due_date, status, batch_id')
       .eq('status', 'active');
+
+    if (studentData?.batch_id) {
+      assignmentsQuery = assignmentsQuery.eq('batch_id', studentData.batch_id);
+    }
+
+    const { data: allAssignments, error: assignmentsError } = await assignmentsQuery;
 
     if (assignmentsError) throw assignmentsError;
 

@@ -52,6 +52,9 @@ CREATE TABLE test_cases (
     is_public BOOLEAN DEFAULT TRUE,
     time_limit FLOAT DEFAULT 2.0,
     memory_limit INT DEFAULT 128000,
+    input_format VARCHAR(50) DEFAULT 'single', -- 'single', 'multiple', 'multiline', 'array', 'matrix'
+    comparison_mode VARCHAR(50) DEFAULT 'exact', -- 'exact', 'whitespace_flexible', 'numeric_tolerance', 'line_by_line', 'token_based', 'array'
+    tolerance FLOAT DEFAULT 0, -- For numeric_tolerance comparison mode
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
