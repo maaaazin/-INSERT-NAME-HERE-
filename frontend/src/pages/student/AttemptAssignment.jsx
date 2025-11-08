@@ -21,6 +21,7 @@ const AttemptAssignment = () => {
   const [output, setOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [testResults, setTestResults] = useState([])
+  const [submissionCount, setSubmissionCount] = useState(0)
 
   useEffect(() => {
     fetchAssignment()
@@ -40,10 +41,21 @@ const AttemptAssignment = () => {
         : '// Write your solution here\n\n'
       setCode(defaultCode)
 
-      // Fetch test cases
+      // Fetch test cases - show all public test cases
       const testCasesData = await testCasesAPI.getByAssignment(assignmentId)
-      const publicTestCases = (testCasesData || []).filter(tc => tc.is_public).slice(0, 2)
+      const publicTestCases = (testCasesData || []).filter(tc => tc.is_public)
       setTestCases(publicTestCases)
+
+      // Fetch current submission count
+      if (user?.student_id) {
+        try {
+          const submissions = await submissionsAPI.getByStudent(user.student_id)
+          const count = (submissions || []).filter(s => s.assignment_id === parseInt(assignmentId)).length
+          setSubmissionCount(count)
+        } catch (error) {
+          console.error('Error fetching submission count:', error)
+        }
+      }
     } catch (error) {
       console.error('Error fetching assignment:', error)
       alert('Failed to load assignment')
@@ -100,25 +112,66 @@ const AttemptAssignment = () => {
         runOnly: false
       })
 
-      setOutput(result.testResults ? 
-        `All test cases passed! Score: ${result.score || 0}%` : 
-        'Submission completed')
-      
-      // Update test results
-      if (result.testResults) {
-        setTestResults(result.testResults.map(tr => ({
+      // Update test results with detailed information
+      if (result.testResults && result.testResults.testResults) {
+        const detailedResults = result.testResults.testResults.map(tr => ({
           testCaseId: tr.testCaseId,
-          passed: tr.passed
-        })))
+          passed: tr.passed,
+          input: tr.input,
+          expectedOutput: tr.expectedOutput,
+          actualOutput: tr.actualOutput,
+          error: tr.error,
+          comparisonDetails: tr.comparisonDetails,
+          runtime: tr.runtime,
+          memory: tr.memory
+        }))
+        setTestResults(detailedResults)
+        
+        // Update output with detailed status including average score
+        const passedCount = result.testResults.passedTests || 0
+        const totalCount = result.testResults.totalTests || 0
+        const status = result.testResults.status || 'failed'
+        const score = result.score || 0
+        const averagePercentage = result.averagePercentage || score
+        const totalSubmissions = result.totalSubmissions || 1
+        setSubmissionCount(totalSubmissions) // Update submission count
+        
+        let outputMessage = ''
+        if (status === 'accepted') {
+          outputMessage = `✅ All ${totalCount} test cases passed!`
+        } else {
+          outputMessage = `❌ ${passedCount}/${totalCount} test cases passed.`
+        }
+        
+        outputMessage += `\n📊 This submission: ${score}%`
+        
+        if (totalSubmissions > 1) {
+          outputMessage += `\n📈 Average score: ${averagePercentage}% (from ${totalSubmissions} submissions)`
+          const remainingSubmissions = Math.max(0, 3 - totalSubmissions)
+          if (remainingSubmissions > 0) {
+            outputMessage += `\n💡 You have ${remainingSubmissions} resubmission(s) remaining (max 3 total)`
+          } else {
+            outputMessage += `\n⚠️ You have reached the maximum of 3 submissions for this assignment.`
+          }
+        } else {
+          outputMessage += `\n💡 You have 2 resubmission(s) remaining (max 3 total)`
+        }
+        
+        setOutput(outputMessage)
+      } else {
+        setOutput(result.message || 'Submission completed')
       }
 
-      // Navigate to submissions after a delay
-      setTimeout(() => {
-        navigate('/student/submissions')
-      }, 2000)
+      // Don't auto-navigate - let user see the results
+      // User can manually navigate to submissions page if needed
     } catch (error) {
       console.error('Error submitting:', error)
-      setOutput(`Error: ${error.message}`)
+      // Check if it's a resubmission limit error
+      if (error.message && error.message.includes('Maximum resubmission limit')) {
+        setOutput(`❌ ${error.message}\n\nYou have reached the maximum of 3 submissions for this assignment.`)
+      } else {
+        setOutput(`Error: ${error.message}`)
+      }
     } finally {
       setIsRunning(false)
     }
@@ -175,6 +228,11 @@ const AttemptAssignment = () => {
               <h1 className="text-2xl font-bold">{assignment.title}</h1>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant="secondary">{assignment.language}</Badge>
+                {submissionCount > 0 && (
+                  <Badge variant={submissionCount >= 3 ? "destructive" : "outline"}>
+                    {submissionCount}/3 submissions
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
@@ -190,10 +248,11 @@ const AttemptAssignment = () => {
             <Button
               className="bg-blue-600 hover:bg-blue-700"
               onClick={handleSubmit}
-              disabled={isRunning}
+              disabled={isRunning || submissionCount >= 3}
+              title={submissionCount >= 3 ? "Maximum of 3 submissions reached" : ""}
             >
               <Send className="w-4 h-4 mr-2" />
-              Submit
+              {submissionCount >= 3 ? "Limit Reached" : "Submit"}
             </Button>
           </div>
         </div>
@@ -272,18 +331,20 @@ const AttemptAssignment = () => {
                   <div key={testCase.test_case_id || index} className="border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="font-semibold">Test Case {testCase.test_case_id || index + 1}</h4>
-                      {result && (
+                      {result ? (
                         result.passed ? (
-                          <Badge variant="success" className="flex items-center gap-1">
+                          <Badge className="bg-green-500 flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" />
                             Passed
                           </Badge>
                         ) : (
-                          <Badge variant="destructive" className="flex items-center gap-1">
+                          <Badge className="bg-red-500 flex items-center gap-1">
                             <XCircle className="w-3 h-3" />
                             Failed
                           </Badge>
                         )
+                      ) : (
+                        <Badge variant="secondary">Not Tested</Badge>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -299,6 +360,29 @@ const AttemptAssignment = () => {
                           {testCase.expected_output}
                         </pre>
                       </div>
+                      {result && (
+                        <>
+                          <div>
+                            <p className="text-xs text-gray-600 mb-1">Your Output:</p>
+                            <pre className={`p-2 rounded text-xs font-mono whitespace-pre-wrap ${
+                              result.passed ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                            }`}>
+                              {result.actualOutput || result.error || 'No output'}
+                            </pre>
+                          </div>
+                          {result.error && (
+                            <div>
+                              <p className="text-xs text-red-600 mb-1">Error:</p>
+                              <pre className="bg-red-50 p-2 rounded text-xs font-mono whitespace-pre-wrap text-red-700">
+                                {result.error}
+                              </pre>
+                            </div>
+                          )}
+                          {result.runtime && (
+                            <p className="text-xs text-gray-500">Runtime: {Math.round(result.runtime)}ms</p>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 )

@@ -33,12 +33,30 @@ const StudentAssignments = () => {
         }
       }
 
-      // Create a map of assignment_id to latest submission
-      const submissionMap = new Map()
+      // Group submissions by assignment and calculate averages
+      const assignmentSubmissions = new Map()
       submissions?.forEach(sub => {
-        if (!submissionMap.has(sub.assignment_id) || 
-            new Date(sub.submitted_at) > new Date(submissionMap.get(sub.assignment_id).submitted_at)) {
-          submissionMap.set(sub.assignment_id, sub)
+        const assignmentId = sub.assignment_id
+        if (!assignmentSubmissions.has(assignmentId)) {
+          assignmentSubmissions.set(assignmentId, [])
+        }
+        assignmentSubmissions.get(assignmentId).push(sub)
+      })
+
+      // Calculate average scores per assignment
+      const assignmentAverages = new Map()
+      assignmentSubmissions.forEach((subs, assignmentId) => {
+        const gradedSubs = subs.filter(s => s.status === 'graded' && s.score !== null)
+        if (gradedSubs.length > 0) {
+          const totalScore = gradedSubs.reduce((sum, s) => sum + (s.score || 0), 0)
+          const maxScore = gradedSubs[0].max_score || 100
+          const avgScore = Math.round(totalScore / gradedSubs.length)
+          const avgPercentage = Math.round((avgScore / maxScore) * 100)
+          assignmentAverages.set(assignmentId, {
+            averageScore: avgPercentage,
+            totalSubmissions: gradedSubs.length,
+            latestSubmission: subs.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))[0]
+          })
         }
       })
 
@@ -49,16 +67,25 @@ const StudentAssignments = () => {
         const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24))
         const isPastDue = daysLeft < 0
 
-        const submission = submissionMap.get(assignment.assignment_id)
+        const assignmentData = assignmentAverages.get(assignment.assignment_id)
         let status = 'not-started'
         let score = null
+        let submissionCount = 0
 
-        if (submission) {
-          if (submission.status === 'graded' && submission.score > 0) {
-            status = 'submitted'
-            score = submission.max_score ? `${Math.round((submission.score / submission.max_score) * 100)}%` : '0%'
-          } else if (submission.status === 'pending') {
-            status = 'in-progress'
+        if (assignmentData) {
+          status = 'submitted'
+          score = `${assignmentData.averageScore}% (avg)`
+          submissionCount = assignmentData.totalSubmissions
+        } else {
+          // Check if there are any submissions (even if not graded)
+          const subs = assignmentSubmissions.get(assignment.assignment_id)
+          if (subs && subs.length > 0) {
+            const hasPending = subs.some(s => s.status === 'pending')
+            if (hasPending) {
+              status = 'in-progress'
+            } else if (subs.some(s => s.status === 'graded')) {
+              status = 'submitted'
+            }
           }
         }
 
@@ -70,6 +97,7 @@ const StudentAssignments = () => {
           language: assignment.language,
           status,
           score,
+          submissionCount,
           timeRemaining: daysLeft > 0 ? `${daysLeft} days left` : 'Past due',
           description: assignment.description || 'No description available',
           isPastDue
@@ -89,11 +117,8 @@ const StudentAssignments = () => {
     if (assignment.isPastDue) {
       return 'Closed'
     }
-    if (assignment.status === 'submitted') {
-      return 'View Submissions'
-    }
-    if (assignment.status === 'in-progress') {
-      return 'Continue'
+    if (assignment.status === 'submitted' || assignment.status === 'in-progress') {
+      return assignment.submissionCount > 0 ? 'Resubmit' : 'Continue'
     }
     return 'Attempt'
   }
@@ -102,11 +127,8 @@ const StudentAssignments = () => {
     if (assignment.isPastDue) {
       return // Do nothing for closed assignments
     }
-    if (assignment.status === 'submitted') {
-      navigate('/student/submissions')
-    } else {
-      navigate(`/student/assignments/${assignment.id}/attempt`)
-    }
+    // Always allow attempting/resubmitting until deadline
+    navigate(`/student/assignments/${assignment.id}/attempt`)
   }
 
   const getStatusBadge = (status) => {
@@ -165,9 +187,21 @@ const StudentAssignments = () => {
                       </span>
                     </div>
                     {assignment.score && (
-                      <p className="text-sm font-medium text-green-600 mt-2">
-                        Your Score: {assignment.score}
-                      </p>
+                      <div className="mt-2">
+                        <p className="text-sm font-medium text-green-600">
+                          Average Score: {assignment.score}
+                        </p>
+                        {assignment.submissionCount > 1 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Based on {assignment.submissionCount} submissions
+                          </p>
+                        )}
+                        {!assignment.isPastDue && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            💡 You can resubmit until the deadline to improve your average!
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
